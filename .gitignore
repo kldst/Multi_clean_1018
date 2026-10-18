@@ -16,7 +16,7 @@ dist/
 *.safetensors
 checkpoints/
 body_models/
-data/
+# data/
 outputs/
 *.npz
 !tests/fixtures/*.npz
