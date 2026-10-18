@@ -15,7 +15,7 @@ os.environ.setdefault('TORCH_DEVICE_BACKEND_AUTOLOAD', '0')
 REPO = Path(__file__).resolve().parents[1]
 MODEL_CONFIG = REPO / 'configs/model_nano4.yaml'
 KEYS = ('checkpoint', 'smplx_root', 'smpl_root', 'smplx2smpl', 'j_regressor_h36m', 'smpl_neutral',
-        'mamma_dance', 'mamma_singles', 'chi3d', 'harmony4d_test')
+        'mamma_dance', 'mamma_singles', 'mamma_markerless', 'chi3d', 'harmony4d_test')
 
 
 def load_paths(path=None):

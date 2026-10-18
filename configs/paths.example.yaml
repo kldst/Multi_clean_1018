@@ -8,5 +8,6 @@ j_regressor_h36m: body_models/J_regressor_h36m.npy
 smpl_neutral: body_models/SMPL_NEUTRAL.pkl   # SMPL J_regressor for the SMPL-22 metric (https://smpl.is.tue.mpg.de)
 mamma_dance: data/mamma_eval_dance
 mamma_singles: data/mamma_eval_singles
+mamma_markerless: data/mamma_markerless_multiple_people   # <seq>/{meta,videos_crf24,pred}; no GT
 chi3d: data/CHI3D                        # <root>/train/s04/{videos,camera_parameters,smplx}
 harmony4d_test: data/Harmony4D/test

@@ -49,8 +49,9 @@ python -m multismpl.inference.mamma --out outputs/dance/infer                   
 python -m multismpl.tto.run --infer outputs/dance/infer --out outputs/dance/fit  # 2. tracking + TTO
 python -m multismpl.eval.mamma --dataset dance --kind fit --pred-dir outputs/dance/fit --out outputs/dance/eval.json
 
-# a multi-person scene without GT (MAMMA markerless layout)
-OUT=outputs/scene scripts/run_markerless.sh <sequence_dir> <number_of_people>
+# MAMMA markerless multi-person scenes (no GT; people count read from the sequence name)
+OUT=outputs/markerless scripts/run_markerless.sh                                     # all sequences
+OUT=outputs/markerless scripts/run_markerless.sh 260216_MultiMama_3_assist_walk_101100_1
 ```
 
 Every command takes `--help`. Each step skips sequences whose output already exists, so runs can be resumed.

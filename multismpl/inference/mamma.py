@@ -4,7 +4,8 @@ top-k presence + 3D NMS slot selection incl. its fallback, camera-0 gauge) plus 
 
   python -m multismpl.inference.mamma --out <dir>                                     # dance, 2 people
   python -m multismpl.inference.mamma --dataset singles --people 1 --select track --out <dir>     # singles
-  python -m multismpl.inference.mamma --seq-dirs <seq> --people 3 --meta-dir meta --video-dir videos_crf24 --candidates 7 --out <dir>
+  python -m multismpl.inference.mamma --dataset markerless --people auto --candidates auto --out <dir>     # markerless
+                                         (no GT; number of people read from the name, e.g. 260216_MultiMama_3_... -> 3)
                                                                                       # markerless, for the v9 tracker
 Per sequence <out>/<seq>.npz:
   pose (F,P,72) beta (F,P,10) trans (F,P,3) presence (F,P) slots (F,P)   the P selected slots (camera-0 gauge)
@@ -14,7 +15,9 @@ Per sequence <out>/<seq>.npz:
   K (V,3,3) crop intrinsics (518 px)  E (V,3,4) world->cam  views (V,)
 """
 import argparse
+import copy
 import json
+import re
 import multiprocessing as mp
 import time
 from pathlib import Path
@@ -104,31 +107,55 @@ def run_sequence(model, seq_dir, opt, device):
     return n, time.time() - t0
 
 
+# per-dataset layout: (paths.yaml key, camera / global npz folder, video folder)
+DATASETS = {'dance': ('mamma_dance', 'gt', 'videos_crf16'), 'singles': ('mamma_singles', 'gt', 'videos_crf16'),
+            'markerless': ('mamma_markerless', 'meta', 'videos_crf24')}
+
+
+def people_in_name(name):
+    """MAMMA multi-person releases encode the person count: 260216_MultiMama_<N>_<activity>_..."""
+    m = re.search(r'MultiMama_(\d+)_', name)
+    if not m:
+        raise SystemExit(f'{name}: cannot read the number of people from the name; pass --people N')
+    return int(m.group(1))
+
+
+def resolve_counts(opt, name):
+    """--people auto / --candidates auto -> numbers for this sequence (candidates: people + 4, at least 6)."""
+    o = copy.copy(opt)
+    o.people = people_in_name(name) if opt.people == 'auto' else int(opt.people)
+    o.candidates = max(o.people + 4, 6) if opt.candidates == 'auto' else int(opt.candidates)
+    return o
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', type=Path, required=True)
-    ap.add_argument('--dataset', choices=['dance', 'singles'], default='dance', help='which MAMMA set (paths from configs/paths.yaml)')
+    ap.add_argument('--dataset', choices=list(DATASETS), default='dance', help='which MAMMA set (paths from configs/paths.yaml)')
     ap.add_argument('--dataset-root', type=Path, default=None, help='folder of sequence folders (overrides --dataset)')
     ap.add_argument('--seq-dirs', type=Path, nargs='*', default=None, help='explicit sequence folders (instead of --dataset-root)')
     ap.add_argument('--sequences', nargs='*', default=None)
     ap.add_argument('--checkpoint', type=Path, default=None, help='default: configs/paths.yaml checkpoint')
     ap.add_argument('--config', type=Path, default=MODEL_CONFIG, help='model config')
     ap.add_argument('--views', nargs='+', default=['IOI_01', 'IOI_05', 'IOI_09', 'IOI_13'])
-    ap.add_argument('--people', type=int, default=2, help='slots kept per frame (top-k presence + 3D NMS)')
+    ap.add_argument('--people', default='2', help="slots kept per frame (top-k presence + 3D NMS); 'auto' = from the sequence name")
     ap.add_argument('--select', choices=['presence', 'track'], default='presence',
                     help='track: causal slot tracking for one person (singles), see CausalSingleTracker')
-    ap.add_argument('--candidates', type=int, default=0, help='also store C mask-ranked candidates (for run_tto.py --tracker candidates)')
-    ap.add_argument('--meta-dir', default='gt', help="camera / global npz folder ('meta' for markerless releases)")
-    ap.add_argument('--video-dir', default='videos_crf16')
+    ap.add_argument('--candidates', default='0', help="also store C mask-ranked candidates (for multismpl.tto.run --tracker candidates); 'auto' = people + 4, at least 6")
+    ap.add_argument('--meta-dir', default=None, help='camera / global npz folder (default: per dataset)')
+    ap.add_argument('--video-dir', default=None, help='video folder (default: per dataset)')
     ap.add_argument('--max-frames', type=int, default=0)
     ap.add_argument('--device', default='cuda')
     opt = ap.parse_args()
-    if opt.select == 'track' and (opt.people != 1 or opt.candidates):
+    key, meta_dir, video_dir = DATASETS[opt.dataset]
+    opt.meta_dir = opt.meta_dir or meta_dir
+    opt.video_dir = opt.video_dir or video_dir
+    if opt.select == 'track' and (opt.people != '1' or opt.candidates != '0'):
         raise SystemExit('--select track is for one person without candidates')
     opt.out.mkdir(parents=True, exist_ok=True)
     device = torch.device(opt.device)
     opt.checkpoint = opt.checkpoint or PATHS.checkpoint
-    root = opt.dataset_root or (PATHS.mamma_dance if opt.dataset == 'dance' else PATHS.mamma_singles)
+    root = opt.dataset_root or getattr(PATHS, key)
     model = load_model(opt.config, opt.checkpoint, device)
     seqs = opt.seq_dirs or sorted(p for p in root.iterdir() if (p / opt.meta_dir / 'global.npz').is_file())
     if opt.sequences:
@@ -138,7 +165,7 @@ def main():
         if (opt.out / f'{s.name}.npz').is_file():
             print(f'{s.name}: exists, skip', flush=True)
             continue
-        n, sec = run_sequence(model, s, opt, device)
+        n, sec = run_sequence(model, s, resolve_counts(opt, s.name), device)
         log[s.name] = {'frames': n, 'seconds': sec}
         print(f'{s.name}: {n} frames {sec:.0f}s ({sec / n * 1e3:.0f} ms/frame)', flush=True)
     (opt.out / f'run_{int(time.time())}.json').write_text(

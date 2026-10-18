@@ -44,7 +44,7 @@ docs/），這份是內部開發筆記。**目前只搬了「推論 → 追蹤 +
 
 ## 驗證（2026-10-18，CPU）
 
-同樣輸入跑舊研究程式（`optimize/multi/` + 官方 evaluator）和本 repo，比對每個輸出陣列 / 數字：**20 組全部逐位元相同**。
+同樣輸入跑舊研究程式（`optimize/multi/` + 官方 evaluator）和本 repo，比對每個輸出陣列 / 數字：**22 組全部逐位元相同**。
 
 | 部分 | 測試 | 結果 |
 |---|---|---|
@@ -52,7 +52,8 @@ docs/），這份是內部開發筆記。**目前只搬了「推論 → 追蹤 +
 | ① 推論（每條 3 幀） | dance + 4 候選、singles `--select track`、CHI3D + 4 候選、Harmony4D（含 1 個評分幀的 GT） | 4/4 IDENTICAL |
 | ② TTO（迭代 20/10/20） | dance joint / indep、singles 100 幀（跨分塊）、CHI3D、Harmony4D × {outlier+z, plain+body} | 6/6 IDENTICAL（只少 `b_matched_frac`） |
 | ③ 評分 | dance / singles（+ 逐幀 npy）/ CHI3D（含 nogate）/ Harmony4D 的 infer 與 fit | 9/9 差 0 |
-| pytest | 25 個 | 全過（約 15–55 秒，CPU） |
+| markerless（3 人） | 推論 3 幀（`--people auto --candidates auto`）、candidates 追蹤 + TTO 80 幀 | 2/2 IDENTICAL |
+| pytest | 27 個 | 全過（約 15–55 秒，CPU） |
 
 踩到的坑：`smplx_body.py` 的 SMPL（非 SMPL-X）模型路徑原本用檔案位置推算，搬家後 Harmony4D GT decode 找不到檔 →
 改成 `configs/paths.yaml` 的 `smpl_root` + `set_smpl_model_root()`。
@@ -62,6 +63,7 @@ docs/），這份是內部開發筆記。**目前只搬了「推論 → 追蹤 +
 | 舊（`Multi_SMPL_Temporal/`） | 新 |
 |---|---|
 | `optimize/multi/infer_dance.py` / `optimize_clean/infer_mamma.py` | `python -m multismpl.inference.mamma`（singles 用 `--dataset singles`） |
+| `run_markerless.sh <seq_dir> <people>`（`--meta-dir meta --video-dir videos_crf24 --candidates N+4 --cand-by-mask`） | `scripts/run_markerless.sh [序列名 ...]` = `--dataset markerless --people auto --candidates auto`；資料在 `paths.yaml` 的 `mamma_markerless`（`../data/mamma_markerless_multiple_people`，34 條、3–4 人、無 GT，3 GB，不進 repo） |
 | `infer_chi3d.py`、`infer_h4d_dense.py` | `multismpl.inference.chi3d`、`multismpl.inference.harmony4d` |
 | `optimize_multi.py --mode joint [--repair --tracker joint --tri-outlier --tri-up body]` | `multismpl.tto.run [--tracker candidates --triangulation outlier --up-axis body]` |
 | `eval_dance_fit.py`、`singles_eval/tto/eval_singles_fit.py` | `multismpl.eval.mamma --dataset dance / singles` |
