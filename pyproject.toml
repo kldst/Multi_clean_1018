@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multismpl"
+version = "0.1.0"
+description = "Multi-view multi-person SMPL-X recovery: feed-forward network + mask-based test-time optimisation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "numpy",
+    "scipy",
+    "opencv-python",
+    "pyyaml",
+    "smplx",
+    "Pillow",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["multismpl*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

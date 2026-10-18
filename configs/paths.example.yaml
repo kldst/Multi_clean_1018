@@ -1,0 +1,12 @@
+# Copy to configs/paths.yaml (git-ignored) and fill in, or point MULTISMPL_PATHS at another file.
+# Relative paths are resolved against the repository root.
+checkpoint: checkpoints/nano4_checkpoint_19.pt
+smplx_root: body_models/smplx            # <root>/{neutral,female,male}/model.pkl  (https://smpl-x.is.tue.mpg.de)
+smpl_root: body_models/smpl                # basicModel_{f,m,neutral}_lbs_10_207_0_v1.0.0.pkl (Harmony4D GT is SMPL)
+smplx2smpl: body_models/smplx2smpl.pkl   # SMPL-X -> SMPL vertex mapping (SMPL-X model transfer tools)
+j_regressor_h36m: body_models/J_regressor_h36m.npy
+smpl_neutral: body_models/SMPL_NEUTRAL.pkl   # SMPL J_regressor for the SMPL-22 metric (https://smpl.is.tue.mpg.de)
+mamma_dance: data/mamma_eval_dance
+mamma_singles: data/mamma_eval_singles
+chi3d: data/CHI3D                        # <root>/train/s04/{videos,camera_parameters,smplx}
+harmony4d_test: data/Harmony4D/test

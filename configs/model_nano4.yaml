@@ -1,0 +1,16 @@
+# Released model ("nano4", checkpoint_19): constructor arguments of multismpl.model.multismpl.MultiSMPL.
+# Trained with training/config/mamma_harmony4d_mask_dpt.yaml (MAMMA synthetic + Harmony4D + BEDLAM; 4 views, T=3).
+img_size: 518
+patch_size: 14
+embed_dim: 1024
+depth: 24
+num_heads: 16
+patch_embed: dinov2_vitl14_reg
+intermediate_layer_idx: [4, 11, 17, 23]
+frames_chunk_size: 1
+num_people: 20
+temporal_rel_num_buckets: 64
+temporal_rel_max_distance: 89
+temporal_head_max_T: 90
+mask_embed_dim: 128
+mask_down_ratio: 1

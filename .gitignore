@@ -1,0 +1,23 @@
+# local paths (copy configs/paths.example.yaml)
+configs/paths.yaml
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# weights, body models, data, outputs -- never commit
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoints/
+body_models/
+data/
+outputs/
+*.npz
+!tests/fixtures/*.npz
+*.mp4
