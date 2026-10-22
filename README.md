@@ -56,6 +56,21 @@ OUT=outputs/markerless scripts/run_markerless.sh 260216_MultiMama_3_assist_walk_
 
 Every command takes `--help`. Each step skips sequences whose output already exists, so runs can be resumed.
 
+## Train
+
+Trains on MAMMA (synthetic) + Harmony4D in the compose format (multi-view 518×518 frames + per-person SMPL-X,
+cameras and masks). Edit the "local paths" block of `configs/train/train_mamma_harmony4d.yaml` first.
+
+```bash
+pip install -e .[train]                                        # hydra-core, fvcore, tensorboard, wandb
+python -m multismpl.train.launch --config train_mamma_harmony4d
+torchrun --nproc_per_node 4 -m multismpl.train.launch --config train_mamma_harmony4d     # multi-GPU
+```
+
+By default the aggregator and camera head start from the pretrained VGGT-1B checkpoint and stay frozen; the temporal
+SMPL head and the person-mask head are trained. Set `init_checkpoint` to a trained model to fine-tune it instead.
+Logs and checkpoints go to `logs/<exp_name>/`.
+
 ## Repository layout
 
 ```
@@ -67,7 +82,9 @@ multismpl/
   inference/          step 1, one module per dataset (mamma, chi3d, harmony4d)
   tto/                step 2: silhouette losses, triangulation, tracking, the fit, CLI (run.py)
   eval/               step 3: one evaluator per benchmark; protocols/ holds the official protocol code
-configs/              model_nano4.yaml (architecture of the released checkpoint), paths.example.yaml
+  train/              training: launch.py (entry), trainer.py, losses, utils/ (optimizer, checkpoints, logging)
+configs/              model_nano4.yaml (architecture of the released checkpoint), paths.example.yaml,
+                      train/train_mamma_harmony4d.yaml
 scripts/              run_benchmark.sh, run_markerless.sh
 tests/                CPU tests on synthetic data (pytest)
 docs/                 RESULTS.md

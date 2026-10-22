@@ -21,3 +21,11 @@ outputs/
 *.npz
 !tests/fixtures/*.npz
 *.mp4
+
+# training outputs
+logs/
+wandb/
+
+# MAMMA-derived landmark assets (only used by the disabled dense-landmark head); not ours to redistribute
+multismpl/data/assets/verts_512.pkl
+multismpl/data/assets/smplx_512_body_parts.json

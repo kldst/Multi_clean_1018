@@ -1,5 +1,6 @@
 # Released model ("nano4", checkpoint_19): constructor arguments of multismpl.model.multismpl.MultiSMPL.
-# Trained with training/config/mamma_harmony4d_mask_dpt.yaml (MAMMA synthetic + Harmony4D + BEDLAM; 4 views, T=3).
+# Trained on MAMMA synthetic + Harmony4D (4 views, T = 3; never on CHI3D / 3DHP). The exact training config was not
+# kept; configs/train/train_mamma_harmony4d.yaml has the same architecture.
 img_size: 518
 patch_size: 14
 embed_dim: 1024

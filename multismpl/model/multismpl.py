@@ -42,10 +42,14 @@ class MultiSMPL(nn.Module):
                                                   down_ratio=int(mask_down_ratio), patch_size=patch_size,
                                                   frames_chunk_size=frames_chunk_size)
 
+    # the trainer keeps the clip axis for temporal models (multismpl.train.trainer.forward_pass)
+    use_temporal_smpl_head = True
+
     def forward(self, images: torch.Tensor, smpl_inputs: Optional[Dict[str, torch.Tensor]] = None):
         """images (B, T*V, 3, H, W) in [0,1], time-major; smpl_inputs: temporal_num_frames (B,), views_per_frame (B,).
         The aggregator sees one time step at a time (T folded into the batch); the SMPL head fuses the T steps.
-        Returns the SMPL head outputs (+ person_mask_logits, pose_enc)."""
+        Returns the SMPL head outputs + person_mask_logits, and pose_enc / pose_enc_list when the camera head is kept
+        (training: the camera loss uses every refinement iteration). In eval mode the input images are returned too."""
         smpl_inputs = smpl_inputs or {}
         if images.dim() == 4:
             images = images.unsqueeze(0)
@@ -56,11 +60,17 @@ class MultiSMPL(nn.Module):
             raise ValueError(f'images have S={S}, expected T*V={T * V}')
         per_step = images.reshape(B, T, V, *images.shape[2:]).reshape(B * T, V, *images.shape[2:])
         tokens, patch_start_idx, _ = self.aggregator(per_step)
+        pred = {}
         with torch.autocast(images.device.type, enabled=False):
-            pred = {'pose_enc': self.camera_head(tokens)[-1]}
+            if self.camera_head is not None:
+                pose_enc_list = self.camera_head(tokens)
+                pose_enc_list = pose_enc_list if isinstance(pose_enc_list, list) else [pose_enc_list]
+                pred['pose_enc'], pred['pose_enc_list'] = pose_enc_list[-1], pose_enc_list
             pred.update(self.smpl_multi_query_trans_rot_head(tokens, patch_start_idx=patch_start_idx, smpl_inputs=smpl_inputs))
             pred['person_mask_logits'] = self.person_mask_head(pred['person_tokens'], tokens, images=per_step,
                                                                patch_start_idx=patch_start_idx)
+        if not self.training:
+            pred['images'] = images
         return pred
 
 

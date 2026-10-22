@@ -1,0 +1,427 @@
+# Train the MultiSMPL network on MAMMA (synthetic compose) + Harmony4D.
+#   python -m multismpl.train.launch --config train_mamma_harmony4d
+# From git commit 3009567 (2026-08-19) of the research repo: the last MAMMA + Harmony4D-only config (8 views, random
+# view sampling, aggregator frozen). Train uses concat + global shuffle; natural dataset lengths set the source ratio.
+# Edit the paths in the "local paths" block below.
+data:
+  train:
+    _target_: multismpl.data.dynamic_dataloader.DynamicTorchDataset
+    num_workers: ${num_workers}
+    max_img_per_gpu: ${max_img_per_gpu}
+    shuffle: true
+    pin_memory: false
+    common_config:
+      fix_img_num: -1
+      fix_aspect_ratio: 1.0
+      load_track: false
+      track_num: 1024
+      training: true
+      inside_random: false
+      img_size: ${img_size}
+      patch_size: ${patch_size}
+      rescale: true
+      rescale_aug: false
+      landscape_check: false
+      # Depth/point heads and losses are disabled in this experiment, so do not
+      # allocate zero depth maps or derive dense camera/world point tensors.
+      emit_dense_geometry: false
+      debug: false
+      get_nearby: false
+      img_nums:
+      - 8
+      - 8
+      max_img_per_gpu: 48
+      allow_duplicate_img: false
+      fixed_view_sampling: false
+      include_metadata: false
+      repeat_batch: false
+      augs:
+        cojitter: true
+        cojitter_ratio: 0.3
+        scales: null
+        aspects:
+        - 1.0
+        - 1.0
+        color_jitter:
+          brightness: 0.5
+          contrast: 0.5
+          saturation: 0.5
+          hue: 0.1
+          p: 0.9
+        gray_scale: false
+        gau_blur: false
+      use_temporal_training: ${temporal_training.enabled}
+      temporal_clip_length: ${temporal_training.clip_length}
+      temporal_clip_stride: ${temporal_training.clip_stride}
+    dataset:
+      _target_: multismpl.data.composed_dataset.ComposedDataset
+      dataset_configs:
+      - _target_: multismpl.data.sys_smpl_multi.SysSMPLMultiDataset
+        split: train
+        # The compact cache is the only data source used on this path. These two
+        # roots remain required by the common MAMMA loader API.
+        SysSMPL_DIR: ${mamma_compose_root}
+        SysSMPL_ANNOTATION_DIR: ${mamma_compose_root}
+        max_num_people: 6
+        min_num_images: 8
+        emit_landmarks: false
+        emit_contact: false
+        emit_person_mask: true
+        person_mask_stride: 1
+        max_sequences: ${debug_max_sequences}
+        max_frames_per_sequence: ${debug_max_frames_per_sequence}
+        compose_cache_root: ${mamma_compose_root}
+        prefer_compose_cache: true
+        # The converter reports ten corrupt raw views and correctly withheld
+        # compose_complete.json. Independently, 1,135 manifest frames have fewer
+        # than eight views; min_num_images filters all of them, leaving 49,562
+        # usable frames rather than weakening the eight-view training contract.
+        require_complete_compose_cache: false
+        val_sequence_fraction: 0.0
+        split_seed: ${split_seed}
+      - _target_: multismpl.data.sys_smpl_multi.SysSMPLMultiDataset
+        split: train
+        SysSMPL_DIR: ${harmony4d_compose_root}
+        SysSMPL_ANNOTATION_DIR: ${harmony4d_compose_root}
+        max_num_people: 6
+        min_num_images: 8
+        emit_landmarks: false
+        emit_contact: false
+        emit_person_mask: true
+        person_mask_stride: 1
+        compose_cache_root: ${harmony4d_compose_root}
+        prefer_compose_cache: true
+        require_complete_compose_cache: true
+        val_sequence_fraction: ${val_sequence_fraction}
+        split_seed: ${split_seed}
+        max_sequences: ${debug_max_sequences}
+        max_frames_per_sequence: ${debug_max_frames_per_sequence}
+  val:
+    _target_: multismpl.data.dynamic_dataloader.DynamicTorchDataset
+    num_workers: ${num_workers}
+    max_img_per_gpu: ${max_img_per_gpu}
+    shuffle: false
+    pin_memory: false
+    common_config:
+      fix_img_num: -1
+      fix_aspect_ratio: 1.0
+      load_track: false
+      track_num: 1024
+      training: false
+      inside_random: false
+      img_size: ${img_size}
+      patch_size: ${patch_size}
+      rescale: true
+      rescale_aug: false
+      landscape_check: false
+      emit_dense_geometry: false
+      debug: false
+      get_nearby: false
+      img_nums:
+      - 8
+      - 8
+      allow_duplicate_img: false
+      fixed_view_sampling: true
+      include_metadata: false
+      augs:
+        cojitter: false
+        cojitter_ratio: 0.5
+        scales: null
+        aspects:
+        - 1.0
+        - 1.0
+        color_jitter: null
+        gray_scale: false
+        gau_blur: false
+      use_temporal_training: ${temporal_training.enabled}
+      temporal_clip_length: ${temporal_training.clip_length}
+      temporal_clip_stride: ${temporal_training.clip_stride}
+    dataset:
+      _target_: multismpl.data.composed_dataset.ComposedDataset
+      dataset_configs:
+      - _target_: multismpl.data.sys_smpl_multi.SysSMPLMultiDataset
+        split: val
+        SysSMPL_DIR: ${harmony4d_compose_root}
+        SysSMPL_ANNOTATION_DIR: ${harmony4d_compose_root}
+        max_num_people: 6
+        min_num_images: 8
+        emit_landmarks: false
+        emit_contact: false
+        emit_person_mask: true
+        person_mask_stride: 1
+        compose_cache_root: ${harmony4d_compose_root}
+        prefer_compose_cache: true
+        require_complete_compose_cache: true
+        val_sequence_fraction: ${val_sequence_fraction}
+        split_seed: ${split_seed}
+        max_sequences: ${debug_val_max_sequences}
+        max_frames_per_sequence: ${debug_val_max_frames_per_sequence}
+exp_name: mamma_harmony4d
+# ---- local paths --------------------------------------------------------------------------------------------------
+mamma_compose_root: /mnt/train-data-4-hdd/yian/Multi_SMPL/yian/mamma_compose                 # MAMMA synthetic, compose format
+harmony4d_compose_root: /mnt/train-data-4-hdd/yian/Multi_SMPL/yian/mamma_harmony4d_compose   # Harmony4D train, SMPL-X compose format
+smplx_model_dir: /mnt/train-data-4-hdd/yian/Multi_SMPL/yian/smplx_models                     # <dir>/{neutral,female,male}/model.pkl
+# Initialisation. Default: the pretrained VGGT-1B checkpoint (aggregator + camera head; its depth-head DPT trunk also
+# initialises the person-mask trunk); the SMPL and mask heads start from scratch. To fine-tune a trained model
+# instead, point init_checkpoint at it (e.g. /mnt/train-data-4-hdd/yian/Multi_SMPL/yian/model/nano4_4v/checkpoint_19.pt).
+init_checkpoint: /home/yian/.cache/torch/hub/checkpoints/model.pt
+# --------------------------------------------------------------------------------------------------------------------
+debug_max_sequences: null
+debug_max_frames_per_sequence: null
+debug_val_max_sequences: null
+debug_val_max_frames_per_sequence: null
+temporal_training:
+  enabled: true
+  clip_length: 3
+  # Overlap clips so every adjacent-frame boundary receives temporal supervision.
+  clip_stride: 3
+  loss_type: l1
+  pose_order: 2
+  beta_order: 1
+  mesh_translate_order: 2
+  # Keep the existing local-pose smoother root-free. Root motion is supervised
+  # separately below on relative SO(3) rotations, so genuine turns are preserved.
+  exclude_root: true
+  root_rotation_order: 1
+  root_rotation_loss_type: l1
+  weight_pose: 0.05
+  weight_beta: 0.01
+  weight_mesh_translate: 0.05
+  weight_root_rotation: 0.02
+img_size: 518
+num_workers: 0
+seed_value: 42
+accum_steps: 1
+scale_by_extrinsics: false
+patch_size: 14
+val_epoch_freq: 5
+enable_val: true
+max_img_per_gpu: 120
+limit_train_batches: null
+limit_val_batches: 10
+logging:
+  log_dir: logs/${exp_name}
+  use_wandb: true
+  log_visuals: false
+  log_freq: 1
+  log_level_primary: INFO
+  log_level_secondary: WARNING
+  all_ranks: false
+  tensorboard_writer:
+    _target_: multismpl.train.utils.tb_writer.TensorBoardLogger
+    path: ${logging.log_dir}/tensorboard
+  wandb_writer:
+    _target_: multismpl.train.utils.wandb_logger.WandbLogger
+    path: ${logging.log_dir}/wandb
+    project: vggt_multi
+    entity: null
+    name: ${exp_name}
+    mode: online
+    resume: null
+  scalar_keys_to_log:
+    train:
+      keys_to_log:
+      - loss_objective
+      - loss_camera
+      - loss_T
+      - loss_R
+      - loss_FL
+      - loss_smpl
+      - loss_smpl_losses
+      - loss_mesh_translate
+      - loss_smpl_presence
+      - loss_smpl_joints2d
+      - loss_smpl_joints3d
+      - loss_smpl_vertices
+      - loss_smpl_temporal_pose
+      - loss_smpl_temporal_beta
+      - loss_smpl_temporal_mesh_translate
+      - loss_smpl_temporal_root_rotation
+      - loss_mask
+      - mask_soft_iou
+      - hungarian_mask_cost
+      - hungarian_presence_cost
+      - smpl_presence_positive_prob_mean
+    val:
+      keys_to_log:
+      - loss_objective
+      - loss_camera
+      - loss_T
+      - loss_R
+      - loss_FL
+      - loss_smpl
+      - loss_smpl_losses
+      - loss_mesh_translate
+      - loss_smpl_presence
+      - loss_smpl_joints2d
+      - loss_smpl_joints3d
+      - loss_smpl_vertices
+      - loss_smpl_temporal_pose
+      - loss_smpl_temporal_beta
+      - loss_smpl_temporal_mesh_translate
+      - loss_smpl_temporal_root_rotation
+      - loss_mask
+      - mask_soft_iou
+      - hungarian_mask_cost
+      - hungarian_presence_cost
+      - smpl_presence_positive_prob_mean
+checkpoint:
+  save_dir: logs/${exp_name}/ckpts
+  save_freq: 1
+  save_step_freq: 5000
+  resume_checkpoint_path: ${init_checkpoint}
+  strict: false
+  load_aggregator_only: false
+  load_model_only: true
+  init_mask_trunk_from_depth: ${init_checkpoint}
+loss:
+  _target_: multismpl.train.loss.MultitaskLoss
+  smplx_model_dir: ${smplx_model_dir}
+  camera:
+    weight: 5.0
+    loss_type: l1
+  depth: null
+  smpl:
+    weight: 1.0
+    loss_type: l1
+    loss_type_joints2d: l1
+    loss_type_joints3d: l1
+    weight_pose: 1.0
+    weight_global_orient: 0.0
+    weight_beta: 0.001
+    init_w: 1.0
+    weight_joints2d: 1.0
+    weight_joints3d: 1.0
+    weight_vertices: 1.5
+    use_temporal_training: ${temporal_training.enabled}
+    weight_temporal_pose: ${temporal_training.weight_pose}
+    weight_temporal_beta: ${temporal_training.weight_beta}
+    weight_temporal_mesh_translate: ${temporal_training.weight_mesh_translate}
+    weight_temporal_root_rotation: ${temporal_training.weight_root_rotation}
+    temporal_pose_order: ${temporal_training.pose_order}
+    temporal_beta_order: ${temporal_training.beta_order}
+    temporal_mesh_translate_order: ${temporal_training.mesh_translate_order}
+    temporal_loss_type: ${temporal_training.loss_type}
+    temporal_exclude_root: ${temporal_training.exclude_root}
+    temporal_root_rotation_order: ${temporal_training.root_rotation_order}
+    temporal_root_rotation_loss_type: ${temporal_training.root_rotation_loss_type}
+    weight_trans: 0.0
+    weight_mesh_translate: 2.0
+    weight_presence: 0.5
+    presence_loss_type: focal
+    presence_focal_alpha: null
+    presence_focal_gamma: 2.0
+    weight_landmark: 0.0
+    weight_landmark_vis: 0.0
+    weight_contact: 0.0
+    weight_floor_contact: 0.0
+    weight_mask: 1.0
+    use_gt: false
+    joints2d_use_gt_camera: true
+    normalize_cam: true
+    use_mamma: true
+    use_hungarian: true
+    hungarian_cost_pose_weight: 1.0
+    hungarian_cost_beta_weight: 0.1
+    hungarian_cost_trans_weight: 0.0
+    hungarian_cost_mesh_trans_weight: 0.3
+    hungarian_cost_presence_weight: 0.05
+    hungarian_cost_mask_weight: 1.0
+    hungarian_mask_cost_grid: 32
+  track: null
+optim:
+  param_group_modifiers: false
+  optimizer:
+    _target_: torch.optim.AdamW
+    lr: 2.0e-05
+    weight_decay: 0.0
+  frozen_module_names:
+  - '*aggregator*'
+  amp:
+    enabled: true
+    amp_dtype: bfloat16
+  gradient_clip:
+    _target_: multismpl.train.utils.gradient_clip.GradientClipper
+    configs:
+    - module_name:
+      - aggregator
+      max_norm: 1.0
+      norm_type: 2
+    - module_name:
+      - camera
+      max_norm: 1.0
+      norm_type: 2
+    - module_name:
+      - smpl
+      max_norm: 1.0
+      norm_type: 2
+    - module_name:
+      - person_mask_head
+      max_norm: 1.0
+      norm_type: 2
+  options:
+    lr:
+    - scheduler:
+        _target_: fvcore.common.param_scheduler.CompositeParamScheduler
+        schedulers:
+        - _target_: fvcore.common.param_scheduler.LinearParamScheduler
+          start_value: 1.0e-08
+          end_value: ${optim.optimizer.lr}
+        - _target_: fvcore.common.param_scheduler.CosineParamScheduler
+          start_value: ${optim.optimizer.lr}
+          end_value: 1.0e-08
+        lengths:
+        - 0.01
+        - 0.99
+        interval_scaling:
+        - rescaled
+        - rescaled
+    - scheduler:
+        _target_: fvcore.common.param_scheduler.CompositeParamScheduler
+        schedulers:
+        - _target_: fvcore.common.param_scheduler.LinearParamScheduler
+          start_value: 1.0e-08
+          end_value: 1.0e-04
+        - _target_: fvcore.common.param_scheduler.CosineParamScheduler
+          start_value: 1.0e-04
+          end_value: 1.0e-08
+        lengths:
+        - 0.01
+        - 0.99
+        interval_scaling:
+        - rescaled
+        - rescaled
+      param_names:
+      - '*smpl_multi_query_trans_rot_head*rel_bias*'
+    weight_decay:
+    - scheduler:
+        _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+        value: 0.0
+max_epochs: 100
+model:
+  # Architecture of the released checkpoint (configs/model_nano4.yaml); see multismpl/model/multismpl.py.
+  _target_: multismpl.model.multismpl.MultiSMPL
+  # The temporal path folds T into the batch axis. Chunk the full-resolution DPT mask trunk one view at a time to keep
+  # T=3, V=8 within 24 GB; this changes only peak memory, not parameters or numerics.
+  frames_chunk_size: 1
+  num_people: 20
+  # relative-bias layout for T <= 90 (MAMMA / Harmony4D clips use T = 3)
+  temporal_rel_num_buckets: 64
+  temporal_rel_max_distance: 89
+  temporal_head_max_T: 90
+  mask_embed_dim: 128
+  mask_down_ratio: 1
+distributed:
+  backend: nccl
+  comms_dtype: None
+  find_unused_parameters: true
+  timeout_mins: 30
+  gradient_as_bucket_view: true
+  bucket_cap_mb: 25
+  broadcast_buffers: true
+cuda:
+  cudnn_deterministic: false
+  cudnn_benchmark: false
+  allow_tf32: true
+val_sequence_fraction: 0.1
+split_seed: 42

@@ -1,7 +1,7 @@
 # CLAUDE.md — Multi_SMPL_clean（準備開源的乾淨版）
 
 從 `../Multi_SMPL_Temporal`（研究用、很雜）抽出來的開源候選 repo，2026-10-18 建立。對外文件用英文（README.md、
-docs/），這份是內部開發筆記。**目前只搬了「推論 → 追蹤 + TTO → 評分」這條路徑**；訓練、資料前處理、demo 還沒搬。
+docs/），這份是內部開發筆記。已搬「推論 → 追蹤 + TTO → 評分」（逐位元驗證過）與 MAMMA + Harmony4D 訓練（未驗證，見「訓練」）；資料前處理、demo 還沒搬。
 
 ## 規則
 
@@ -70,11 +70,32 @@ docs/），這份是內部開發筆記。**目前只搬了「推論 → 追蹤 +
 | `eval_chi3d_fit.py`、`eval_h4d_fit.py` | `multismpl.eval.chi3d`、`multismpl.eval.harmony4d` |
 | hydra `instantiate(cfg.model)` | `multismpl.model.multismpl.load_model(configs/model_nano4.yaml, ckpt, device)` |
 
-## 還沒搬（2026-10-18 使用者決定：先不做，範圍維持「推論 + TTO + 評分」）
+## 訓練（2026-10-21 加入，只有 MAMMA + Harmony4D）
 
-1. 訓練：trainer、loss（`training/loss*.py`、`smpl_matching.py`）、資料集（`sys_smpl_multi.py`、composed、dataloader）、
-   最終訓練 config。驗證方式：固定 seed 跑數十步，loss 逐步和舊版一致。
-2. 資料前處理：`compose_script/`、`smpl_transfer/` 中真正用到的轉換。
-3. demo（取代 186 KB 的 `demo_gradio_smpl_multi.py`）。
-4. E 組跨腳微調（平衡取樣、鏡像、contact loss）。
-5. LICENSE（未決定）；發布前跑 secret scan；checkpoint 上 Hugging Face（原始 VGGT-1B 權重非商用）。
+使用者要求：只要 MAMMA + Harmony4D 的訓練；不要 3DHP、BEDLAM、跨腳實驗、overfit；**不做新舊比對驗證**。
+
+- 入口：`python -m multismpl.train.launch --config train_mamma_harmony4d`（config 在 `configs/train/`，用
+  `hydra.initialize_config_dir`）。
+- config 來源：研究 repo git `3009567`（2026-08-19）的 `training/config/mamma_harmony4d_mask_dpt.yaml`，也就是最後一版只有
+  MAMMA + Harmony4D 的設定（8 view、隨機取 view、aggregator 凍結）。改的地方：`_target_` 換成 `multismpl.*`、路徑換本機、
+  model 區塊換成 `MultiSMPL` 參數、初始權重改成 `init_checkpoint`（預設 VGGT-1B `model.pt`；原本的
+  `mamma_harmony4d_concat_mask_dpt_temporal_rel/ckpts/checkpoint_5.pt` 在這台找不到）。
+  **注意**：這份 config 不一定就是訓練出 ckpt19 的那份（ckpt19 的資料夾名 `nano4_4v` 暗示 4 view）。
+- 程式來源：研究 repo **目前**（10 月）的訓練程式，搬進 `multismpl/train/`（trainer、loss*、smpl_matching、temporal、
+  utils/）和 `multismpl/data/`（dynamic_dataloader、composed_dataset、sys_smpl_multi、augmentation、worker_fn、
+  track_util、assets/）。只改 import，另外拿掉：
+  - `dynamic_dataloader.py` 的 `crossleg_balance` / `pose_family_dose` sampler（`crossleg_balance.py`、`pose_family_dose.py` 沒搬）
+  - `composed_dataset.py` 的鏡像 clip hook
+  - `loss_smpl.py` 的 cross-relation / cross-contact loss（及其 helper）
+  - `trainer.py` 的 `mamma_dance_val`（依賴研究 repo 的 `eval/mamma_eval_dance`）
+  以上在原程式裡都是預設關閉，拿掉不影響 MAMMA + Harmony4D 訓練。
+- `MultiSMPL.forward` 補上訓練要的輸出：`pose_enc_list`（camera loss）、eval 模式回傳 `images`；`use_temporal_smpl_head = True`。
+- `multismpl/data/assets/`（verts_512.pkl、smplx_512_body_parts.json）是 MAMMA 衍生資產，只有 landmark head 用（此 config 關閉），已 git-ignore。
+- temporal head 的 mean-params（`tram/data/smpl/smpl_mean_params.npz`）新舊 repo 都不存在 → 兩邊都用 0 初始化，行為相同。
+
+## 還沒搬（使用者決定先不做）
+
+1. 資料前處理：`compose_script/`、`smpl_transfer/` 中真正用到的轉換（產生 compose 格式的 MAMMA / Harmony4D 訓練資料）。
+2. demo（取代 186 KB 的 `demo_gradio_smpl_multi.py`）。
+3. E 組跨腳微調、3DHP、BEDLAM。
+4. LICENSE（未決定）；發布前跑 secret scan；checkpoint 上 Hugging Face（原始 VGGT-1B 權重非商用）。
