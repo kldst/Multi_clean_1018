@@ -7,8 +7,38 @@ and cameras; protocols differ between benchmarks, so do not compare across table
 - **H36M-14**: J_regressor_h36m → 14 joints. Rooted on the regressed H36M pelvis (Dance, singles, Harmony4D) or on the
   SMPL-X kinematic joint 0 (CHI3D, as MV4DHMR `test.py`).
 - **PA-**: after a similarity (Umeyama) alignment. **Transl**: pelvis position error.
-- **Ours**: checkpoint `nano4` (trained on MAMMA synthetic, Harmony4D, BEDLAM; never on CHI3D), 4 views, T = 3.
+- **Ours**: checkpoint `nano4` (trained on MAMMA synthetic + Harmony4D only; never on CHI3D), 4 views, T = 3.
   **+ TTO** uses the calibrated cameras, as do all multi-view methods below.
+
+## Matching protocol (MAMMA Dance, MAMMA singles)
+
+Prediction and GT meshes are mapped to one 6890-vertex SMPL topology; in every frame predictions are assigned to GT
+people by **Hungarian matching on the H36M-regressed pelvis** (world frame), **with no distance gate**; each pair is then
+scored with the same regressors on both sides, each rooted on its own regressed joint.
+
+Why: (1) the regressed H36M pelvis is defined identically for SMPL- and SMPL-X-output methods (their native pelvis joints
+differ by ~18.5 mm on the same body) and is the H36M-14 root; (2) matching on position decides *who is who* without
+using the pose error being measured; (3) Hungarian is one-to-one and globally optimal, which matters when two people are
+close; (4) without a gate every GT person is scored, so methods with different recall stay comparable.
+
+Check on MV4DHMR's own predictions (same predictions, only the matcher changes; SMPL-22 MPJPE / recall):
+
+| Matcher | Dance, 4 views | singles |
+|---|---|---|
+| **Hungarian on pelvis, no gate (this protocol)** | **75.00 / 100%** | **122.34 / 100%** |
+| Greedy PVE, no gate | 80.89 / 100% | 122.69 / 100% |
+| Greedy PVE + 500 mm gate (`test.py` mechanism, bugs fixed) | 82.49 / 14.0% | 75.51 / 5.3% |
+| MV4DHMR `utils/training.py` `match_greedy` as written + 500 mm | 90.91 / 15.1% | 75.64 / 5.3% |
+
+When every GT person is scored, this protocol is not harder on MV4DHMR than greedy PVE. With the 500 mm gate only
+5–15% of its people survive (its 4-view pelvis error averages 677 mm on Dance; 110 mm with 8 views), so gated MPJPE
+describes only that subset. MV4DHMR's `match_greedy` has two bugs with `metric='pve'`: an operator-precedence error
+ignores whether a prediction / GT is already assigned (`training.py:89-90`), and every rejected *pair* is counted as a
+false positive, which ends the loop early (`training.py:62-63, 103`).
+
+CHI3D keeps MV4DHMR's `test.py` protocol (greedy PVE, 500 mm gate, each model's own joint 0) so it can be compared with
+published numbers; the ungated variant is reported too. Harmony4D uses its official `eval_h4d_nano.py` metric (Hungarian
+on absolute PVE, regressed-pelvis root; ungated headline, 500 mm-gated secondary); only our methods are scored there.
 
 ## MAMMA Dance — 18 sequences, 12 462 person-frames, 4 views (IOI_01/05/09/13)
 

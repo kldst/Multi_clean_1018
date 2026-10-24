@@ -10,6 +10,8 @@ top-k presence + 3D NMS slot selection incl. its fallback, camera-0 gauge) plus 
 Per sequence <out>/<seq>.npz:
   pose (F,P,72) beta (F,P,10) trans (F,P,3) presence (F,P) slots (F,P)   the P selected slots (camera-0 gauge)
   all_presence (F,Q) all_trans (F,Q,3)                                   every slot
+  all_pose (F,Q,72) all_beta (F,Q,10)                                    every slot, with --save-all-slots (lets
+                                                                         multismpl.eval.mamma --select re-pick slots offline)
   masks (F,P,V,259,259) uint8                                            masks of the selected slots
   cand_pose / cand_beta / cand_trans / cand_presence / cand_slots / cand_masks (F,C,...)   with --candidates C
   K (V,3,3) crop intrinsics (518 px)  E (V,3,4) world->cam  views (V,)
@@ -98,6 +100,8 @@ def run_sequence(model, seq_dir, opt, device):
             rec['pose'].append(pose[sel]); rec['beta'].append(beta[sel]); rec['trans'].append(tr[sel])
             rec['presence'].append(prob[sel]); rec['slots'].append(np.asarray(sel))
             rec['all_presence'].append(prob); rec['all_trans'].append(tr)
+            if opt.save_all_slots:
+                rec.setdefault('all_pose', []).append(pose); rec.setdefault('all_beta', []).append(beta)
             del tokens, pred
     for w in workers:
         w.join(timeout=30)
@@ -144,6 +148,8 @@ def main():
     ap.add_argument('--candidates', default='0', help="also store C mask-ranked candidates (for multismpl.tto.run --tracker candidates); 'auto' = people + 4, at least 6")
     ap.add_argument('--meta-dir', default=None, help='camera / global npz folder (default: per dataset)')
     ap.add_argument('--video-dir', default=None, help='video folder (default: per dataset)')
+    ap.add_argument('--save-all-slots', action='store_true',
+                    help='also store every slot\'s pose / beta (all_pose, all_beta) so slot selection can be redone offline')
     ap.add_argument('--max-frames', type=int, default=0)
     ap.add_argument('--device', default='cuda')
     opt = ap.parse_args()
