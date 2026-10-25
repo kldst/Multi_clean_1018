@@ -14,6 +14,8 @@ and cameras; protocols differ between benchmarks, so do not compare across table
   earlier per-dataset tracker instead (TTO, slot tracker: dance 41.72, CHI3D 44.35 gated, singles 49.44; Harmony4D
   45.77 SMPL-22).
 - Our rows were produced with this repository on the dataset copies of this machine (MAMMA: `videos/` downloads).
+  Exception: the singles network row is the earlier run on `videos_crf16` (60.91); a rerun on this machine's
+  `videos/` copy, which the singles TTO row starts from, gives 61.13 / 43.18.
 
 ## MAMMA Dance — 18 sequences, 12 462 person-frames, 4 views (IOI_01/05/09/13)
 
@@ -59,7 +61,7 @@ Gendered GT, no gate. The network's slot is chosen by causal tracking (`--select
 
 | Method | SMPL-22 | SMPL-22 PA | H36M-14 | H36M-14 PA |
 |---|---|---|---|---|
-| Ours, network | 61.13 | 43.18 | 66.53 | 44.39 |
+| Ours, network | 60.91 | 42.80 | 66.51 | 44.03 |
 | **Ours + TTO** | **48.49** | 36.29 | **53.66** | 37.81 |
 | HeatFormer (GT boxes / person count / association) | 53.78 | **34.84** | 56.34 | **34.96** |
 | MV4DHMR, 4 views | 122.34 | 59.15 | 139.35 | 65.28 |

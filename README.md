@@ -36,7 +36,7 @@ TTO rows alike.
 |---|---|---|---|
 | MAMMA Dance (18 seq., 2 people, 4 views) | SMPL-22 | 54.84 / 39.32 | **42.08 / 31.02** |
 | CHI3D s04 (MV4DHMR `test.py` protocol) | H36M-14 | 57.82 / 34.13 | **44.44 / 29.40** |
-| MAMMA singles (22 seq.) | SMPL-22 | 61.13 / 43.18 | **48.49 / 36.29** |
+| MAMMA singles (22 seq.) | SMPL-22 | 60.91 / 42.80 | **48.49 / 36.29** |
 | Harmony4D test (close interaction) | SMPL-22 | 56.72 / 39.27 | **44.28 / 32.41** |
 
 The model was not trained on CHI3D. Comparisons with other methods under the same protocols, and how every number is
