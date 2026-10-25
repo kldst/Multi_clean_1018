@@ -93,6 +93,49 @@ docs/），這份是內部開發筆記。已搬「推論 → 追蹤 + TTO → �
 - `multismpl/data/assets/`（verts_512.pkl、smplx_512_body_parts.json）是 MAMMA 衍生資產，只有 landmark head 用（此 config 關閉），已 git-ignore。
 - temporal head 的 mean-params（`tram/data/smpl/smpl_mean_params.npz`）新舊 repo 都不存在 → 兩邊都用 0 初始化，行為相同。
 
+## 追蹤統一（2026-10-23）
+
+使用者要求所有資料集統一成 **top-k → Joint Candidate Tracking (JCT，舊稱 v9) → TTO**（不用 presence 閾值）：
+- `multismpl.tto.run` 預設改成 `--tracker candidates --triangulation outlier --up-axis body`；舊的 slot tracker 用 `--tracker slots`。
+- 推論預設存 4 個候選（`mamma.py` / `chi3d.py` `--candidates 4`；harmony4d 本來就是 4）；singles 的 `--select track` 現在可以和候選一起用。
+- `mamma.py` 找不到預設影片資料夾時改用 `videos/`（下載版的 dance / singles 是 `videos/`）。
+- `scripts/run_benchmark.sh` 預設就是統一流程；`LEGACY=1` 重現舊數字（`UNIFIED=1` 已移除）。`run_markerless.sh` 改用預設（outlier + body）。
+- Network 那列不受影響（仍是各 evaluator 的 top-k）；評分仍每幀用 GT 配對，追蹤不用 GT。
+- MAMMA 上幾乎每幀的 TTO 起點被換成三角化位置（`triangulated_init` ≈ 全部）。原以為是 IOI_13 直式裁切讓 mask 中心偏掉，
+  **用 GT 驗證後不是**：是網路骨盆水平偏 0.2–0.45 m，mask 三角化反而準（singles 4 條序列水平誤差 1–2 cm）。
+- 新數字：`outputs/unified/{dance,singles,harmony4d}`（CHI3D 不在這台）。Harmony4D 只重跑 JCT + TTO（推論沿用
+  `outputs/harmony4d_bothvis/infer`）。
+- 2026-10-23 使用者要求：README / RESULTS 的 Harmony4D 改成 both-visible 視角的數字（`outputs/harmony4d_bothvis`，
+  視角由 GT 挑「兩人都在畫面內」，`multismpl.inference.harmony4d_views`），文件中不說明挑法，只寫「每序列一組固定 4 視角、
+  所有方法相同」。舊的官方隨機視角數字：network 66.35 / 44.79，TTO 59.56 / 39.75（H36M-14）。
+
+## JCT 定案（2026-10-24）
+
+`multismpl.tto.run` 預設 = 使用者採用的版本（README / RESULTS / 會議網頁 tto_explained_noE.html 都已換成這組數字）：
+- `--up-shift 0`（原 0.15 m 往下移；singles 上 GT 檢查 mask 中心本來就在骨盆高度附近，改 0 分數幾乎不變）。
+- `--prefer-consistent`（預設開）：去重（< 25 cm）時優先保留「網路骨盆與 mask 三角化 < 1 m」的候選。修 singles
+  Stepper_50049_1（混雜候選：mask 在主角、身體在背景人，225 幀選錯 → 0）。
+- `--keep-topk-pairs`（預設開）：網路 top-k 的 slot 彼此不去重。修 CHI3D 擁抱（兩人 mask 中心三角化 < 25 cm，
+  Hug 1 有 42/95 幀被當同一人刪掉）。
+- `--topk-bonus` / `--w-pose-link` 試過沒效果，預設 0。舊行為：`LEGACY=1 scripts/run_benchmark.sh`。
+- 結果（outputs/unified/<ds>/eval_fit_C*.json；singles 是 eval_fit_B.json，單人時 C 與 B 相同）：
+  dance 42.08（舊 41.72）、CHI3D 有門檻 H36M-14 44.44（舊 44.35，recall 100%）、singles 48.45（舊 49.44）、
+  Harmony4D SMPL-22 45.27（舊 45.77）。network 列改用本機重跑（dance 54.84、singles 61.13、CHI3D 無門檻 58.13）。
+- 資料：CHI3D train/s04 解壓到 `/mnt/train-data-2-hdd/yian/data/CHI3D`（paths.yaml 已設）；singles 22 條齊全
+  （SubjectCalib_50050_1 的 IOI_05/13 重新下載過）。
+
+## 多人規則（2026-10-24，預設開）
+
+markerless 多人場景（telephone_chain 4–6 人）看到：軌跡被沒信心的候選騙走、追丟後要等 60 幀才找回、一人缺席時全員
+平滑被關掉（全員抖動）。新增並設為預設：
+- `--min-presence-boost 0.1`：presence < 0.1 的候選不再用 mask 比例把信心拉到 max(presence, support)。
+- `--reacquire`：上一幀缺席的軌跡可接「清楚（support ≥ 0.75、presence ≥ 0.3）」的候選，不受距離限制，移動成本上限 4。
+- `--per-person-smooth`：平滑 / beta 用每人自己的 ambiguous（缺席或 < 15 cm），不再整幀全關。
+- `--dup-mask-iou`（mask 重疊判同一人）試過：排成一列的人在部分視角互相遮擋，會誤刪真人 → 預設 0（關）。
+- 結果（fit_D，README / RESULTS / 網頁已更新）：dance 42.08、CHI3D 44.44 都不變；singles 48.45 → 48.49；Harmony4D SMPL-22 45.27 → 44.28（缺人 175 → 37）；
+  telephone_chain 4 人缺人 264 → 94、5 人 300 → 39。舊行為：`--min-presence-boost 0 --no-reacquire --no-per-person-smooth`。
+- 影片：`outputs/dance_video/render_mesh_video.py --hide-dropped` 不畫追蹤找不到的人（只影響影片，不影響評分）。
+
 ## 還沒搬（使用者決定先不做）
 
 1. 資料前處理：`compose_script/`、`smpl_transfer/` 中真正用到的轉換（產生 compose 格式的 MAMMA / Harmony4D 訓練資料）。

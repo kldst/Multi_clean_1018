@@ -5,18 +5,39 @@ a per-person silhouette mask from a few calibrated views; a mask-based **test-ti
 bodies against those masks. No 2D keypoint detector, no differentiable renderer and no ground-truth poses are used.
 
 ```
-videos (V views) ──► network: per frame, P person slots ──► tracking ──► TTO ──► SMPL-X per person, world frame
-                     (presence, SMPL-X, pelvis, masks)      (who is who)   (fit the bodies to the masks)
+videos (V views) ─► network ──────────► top-k slots ─► Joint Candidate ─► TTO ────────────► SMPL-X per person
+                    per frame: 20        (network       Tracking (JCT)     fit the bodies     (world frame)
+                    person slots         score)         who is who         to the masks
+                    (presence, SMPL-X,                  over time
+                    pelvis, masks)
 ```
+
+The same three steps run on every dataset:
+1. **top-k**: per frame, the k most present slots (3D NMS where the benchmark's evaluator uses it; singles: causal
+   top-1). This is the "network" score. The inference also stores 4 mask-ranked candidates per frame (the top-k slots
+   first, then other slots whose masks are visible in at least half of the views).
+2. **Joint Candidate Tracking**: places every candidate in 3D by triangulating its mask centroids and links candidates
+   into P person tracks, all people assigned jointly per frame (Hungarian on motion + mask IoU + confidence). It can
+   replace a slot that top-k picked wrongly (a bystander, a duplicate). Candidates closer than 25 cm count as one
+   person, except that two top-k slots are never merged (people hugging), and among duplicates the one whose own body
+   agrees with its mask triangulation is kept. A slot the network barely believes in (presence < 0.1) is not made
+   confident by its masks, and a track that lost its person can take back a clearly visible, unclaimed candidate at
+   any distance. Frames where a person is still not found are filled from the neighbouring frames. No ground truth
+   is used.
+3. **TTO**: fits each track's SMPL-X to its masks in all views over the whole sequence; temporal smoothness is
+   switched off only for the person who is missing or touching someone, not for everyone in that frame.
+
+Scores match predictions to the ground-truth people of each frame (the benchmark's protocol), for the network and the
+TTO rows alike.
 
 ## Results (MPJPE / PA-MPJPE, mm)
 
 | Benchmark | Metric | Network | + TTO |
 |---|---|---|---|
-| MAMMA Dance (18 seq., 2 people, 4 views) | SMPL-22 | 54.94 / 39.28 | **41.72 / 30.60** |
-| CHI3D s04 (MV4DHMR `test.py` protocol) | H36M-14 | 57.82 / 34.13 | **44.37 / 29.31** |
-| MAMMA singles (22 seq.) | SMPL-22 | 60.91 / 42.80 | **49.00 / 36.38** |
-| Harmony4D test (close interaction) | H36M-14 | 66.35 / 44.79 | **59.56 / 39.75** |
+| MAMMA Dance (18 seq., 2 people, 4 views) | SMPL-22 | 54.84 / 39.32 | **42.08 / 31.02** |
+| CHI3D s04 (MV4DHMR `test.py` protocol) | H36M-14 | 57.82 / 34.13 | **44.44 / 29.40** |
+| MAMMA singles (22 seq.) | SMPL-22 | 61.13 / 43.18 | **48.49 / 36.29** |
+| Harmony4D test (close interaction) | SMPL-22 | 56.72 / 39.27 | **44.28 / 32.41** |
 
 The model was not trained on CHI3D. Comparisons with other methods under the same protocols, and how every number is
 computed, are in [docs/RESULTS.md](docs/RESULTS.md).
@@ -46,7 +67,7 @@ OUT=outputs/dance DEVICE=cuda scripts/run_benchmark.sh dance        # dance | si
 
 # or step by step
 python -m multismpl.inference.mamma --out outputs/dance/infer                     # 1. network (+ masks)
-python -m multismpl.tto.run --infer outputs/dance/infer --out outputs/dance/fit  # 2. tracking + TTO
+python -m multismpl.tto.run --infer outputs/dance/infer --out outputs/dance/fit  # 2. JCT + TTO
 python -m multismpl.eval.mamma --dataset dance --kind fit --pred-dir outputs/dance/fit --out outputs/dance/eval.json
 
 # MAMMA markerless multi-person scenes (no GT; people count read from the sequence name)
@@ -55,6 +76,7 @@ OUT=outputs/markerless scripts/run_markerless.sh 260216_MultiMama_3_assist_walk_
 ```
 
 Every command takes `--help`. Each step skips sequences whose output already exists, so runs can be resumed.
+`LEGACY=1 scripts/run_benchmark.sh ...` (or `multismpl.tto.run --tracker slots`) runs the older per-dataset trackers.
 
 ## Train
 
@@ -80,7 +102,7 @@ multismpl/
   body/               SMPL-X decoding and coordinate conversions
   data/               image preprocessing and the Harmony4D loader
   inference/          step 1, one module per dataset (mamma, chi3d, harmony4d)
-  tto/                step 2: silhouette losses, triangulation, tracking, the fit, CLI (run.py)
+  tto/                step 2: silhouette losses, triangulation, tracking (JCT), the fit, CLI (run.py)
   eval/               step 3: one evaluator per benchmark; protocols/ holds the official protocol code
   train/              training: launch.py (entry), trainer.py, losses, utils/ (optimizer, checkpoints, logging)
 configs/              model_nano4.yaml (architecture of the released checkpoint), paths.example.yaml,

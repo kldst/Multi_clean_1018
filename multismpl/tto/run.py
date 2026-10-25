@@ -1,8 +1,10 @@
 """Step 2 of the pipeline: tracking + test-time optimisation for every sequence of an inference folder.
 
-  python -m multismpl.tto.run --infer <infer_dir> --out <fit_dir>                         # slot tracker (dance / CHI3D / singles)
-  python -m multismpl.tto.run --infer <infer_dir> --out <fit_dir> --tracker candidates \
-                    --triangulation outlier --up-axis body                              # v9 (Harmony4D / markerless)
+  python -m multismpl.tto.run --infer <infer_dir> --out <fit_dir>          # every dataset: Joint Candidate Tracking + TTO
+  python -m multismpl.tto.run --infer <infer_dir> --out <fit_dir> --tracker slots      # legacy slot tracker
+
+Pipeline: the inference picks the top-k slots per frame (the network score) and stores C mask-ranked candidates;
+Joint Candidate Tracking links candidates into P person tracks (it may replace a wrongly picked slot); TTO fits them.
 
 Input  <infer_dir>/<seq>.npz from multismpl.inference.{mamma,chi3d,harmony4d} (camera-0 gauge slots, masks,
        K, E; cand_* arrays for --tracker candidates).
@@ -30,7 +32,11 @@ def build_tracks(d, n, opt, dev):
         if 'cand_trans' not in d:
             raise SystemExit('--tracker candidates needs an inference run with --candidates C')
         P = opt.people or d['pose'].shape[1]
-        return tracks_from_candidates(d, n, P, drop_outlier_views=opt.triangulation == 'outlier', up_axis=opt.up_axis, dev=dev)
+        return tracks_from_candidates(d, n, P, drop_outlier_views=opt.triangulation == 'outlier', up_axis=opt.up_axis, dev=dev,
+                                      up_shift=opt.up_shift, prefer_consistent=opt.prefer_consistent,
+                                      topk_bonus=opt.topk_bonus, w_pose=opt.w_pose_link,
+                                      keep_topk_pairs=opt.keep_topk_pairs, min_presence_boost=opt.min_presence_boost,
+                                      dup_mask_iou=opt.dup_mask_iou, reacquire=opt.reacquire)
     return tracks_from_slots(d, n)
 
 
@@ -42,15 +48,35 @@ def main():
     ap.add_argument('--max-frames', type=int, default=0, help='fit only the first N frames (debug)')
     ap.add_argument('--device', default='cuda')
     g = ap.add_argument_group('tracking')
-    g.add_argument('--tracker', choices=['slots', 'candidates'], default='slots',
-                   help='slots: keep/swap Viterbi over the selected slots; candidates: v9 joint tracking over mask candidates')
+    g.add_argument('--tracker', choices=['slots', 'candidates'], default='candidates',
+                   help='candidates: Joint Candidate Tracking (JCT) over the stored mask candidates (default, every dataset); '
+                        'slots: legacy keep/swap Viterbi over the selected slots (the older reported numbers)')
     g.add_argument('--people', type=int, default=0, help='candidates: number of people (default: slots stored per frame)')
-    g.add_argument('--triangulation', choices=['plain', 'outlier'], default='plain',
+    g.add_argument('--triangulation', choices=['plain', 'outlier'], default='outlier',
                    help='candidates: all-view DLT, or drop a view only when it is a clear leave-one-out outlier (> 100 px)')
-    g.add_argument('--up-axis', choices=['z', 'body'], default='z',
-                   help='candidates: silhouette centre -> pelvis shift (0.15 m) along world z or the body-estimated up axis')
+    g.add_argument('--up-axis', choices=['z', 'body'], default='body',
+                   help='candidates: silhouette centre -> pelvis shift along world z or the body-estimated up axis')
+    g.add_argument('--up-shift', type=float, default=0., help='candidates: that shift in metres (default 0: the mask centre is used as is)')
+    g.add_argument('--prefer-consistent', action=argparse.BooleanOptionalAction, default=True,
+                   help='candidates (default on): among duplicates keep first a candidate whose network pelvis agrees (< 1 m) with its '
+                        'mask triangulation (drops mixed candidates: masks on one person, body on another)')
+    g.add_argument('--topk-bonus', type=float, default=0.,
+                   help="candidates: link-cost bonus for the network's top-k slots (motion units, 1 = 10 cm; 0 = off)")
+    g.add_argument('--w-pose-link', type=float, default=0.,
+                   help='candidates: link cost per radian of mean body-pose change (0 = off)')
+    g.add_argument('--keep-topk-pairs', action=argparse.BooleanOptionalAction, default=True,
+                   help="candidates (default on): never merge two of the network's top-k slots as duplicates (people hugging have mask "
+                        'centroids < 0.25 m apart; the network\'s 3D NMS already separated them)')
+    g.add_argument('--min-presence-boost', type=float, default=0.1,
+                   help='candidates: a mask-supported candidate counts as confident only if its presence >= this (0 = always)')
+    g.add_argument('--dup-mask-iou', type=float, default=0.,
+                   help='candidates: candidates whose mean mask IoU exceeds this are one person, top-k slots included (0 = off)')
+    g.add_argument('--reacquire', action=argparse.BooleanOptionalAction, default=True,
+                   help='candidates (default on): a track that missed the previous frame may take a clear candidate at any distance')
     g = ap.add_argument_group('fit (defaults = every reported number)')
     g.add_argument('--mode', choices=['joint', 'indep'], default='joint', help='joint: occlusion-aware; indep: each person alone')
+    g.add_argument('--per-person-smooth', action=argparse.BooleanOptionalAction, default=True,
+                   help='(default on) smoothness / beta use per-person ambiguity (a missing or touching person only turns off its own)')
     g.add_argument('--chunk', type=int, default=64)
     g.add_argument('--iters-trans', type=int, default=100, help='stage A')
     g.add_argument('--iters-global', type=int, default=50, help='stage B')

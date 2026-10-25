@@ -29,6 +29,7 @@ import torch
 from multismpl.body.body_model import init_smplx
 from multismpl.body.smplx_body import _decode_smpl_batch
 from multismpl.data.harmony4d import Harmony4DDataset
+from multismpl.eval.protocols.common import topk_nms3d
 from multismpl.inference.network import CachedTemporalHead, head_meta, load_model, person_masks, rank_candidates_by_mask, slot_outputs
 from multismpl.paths import MODEL_CONFIG, PATHS
 
@@ -82,7 +83,14 @@ def run_sequence(model, ds, scored, seq_i, record, opt, device, smplx2smpl):
     avail = [c for c, cam in enumerate(record.cameras) if all(ds._view_available(record, cam, f) for f in frames)]
     if len(avail) < V:
         return None
-    views = [int(i) for i in np.random.default_rng(seq_i).permutation(avail)[:V]]
+    fixed = opt.views_per_seq.get(record.name.replace('/', '_')) if opt.views_per_seq else opt.views
+    if fixed:                                                           # fixed camera names, first = camera 0
+        names = [c.name for c in record.cameras]
+        if not all(n in names and names.index(n) in avail for n in fixed):
+            return None
+        views = [names.index(n) for n in fixed]
+    else:
+        views = [int(i) for i in np.random.default_rng(seq_i).permutation(avail)[:V]]
     sample_of = {(s, f): i for i, (s, f) in enumerate(ds.samples)}
     head = CachedTemporalHead(model, head_meta(V, device, T))
     rec, gts = defaultdict(list), defaultdict(list)
@@ -105,7 +113,10 @@ def run_sequence(model, ds, scored, seq_i, record, opt, device, smplx2smpl):
                 imgs = imgs / 255.
             pred, tokens, patch = head(imgs)
             prob, tr, pose, beta = slot_outputs(pred)
-            sel = [int(i) for i in np.argsort(-prob)[:2]]               # eval_h4d_nano: top-2, no NMS
+            if opt.select == 'nms':                                      # same rule as the MAMMA evaluators
+                sel = topk_nms3d(prob, tr, 2)
+            else:
+                sel = [int(i) for i in np.argsort(-prob)[:2]]           # eval_h4d_nano: top-2, no NMS
             m = person_masks(model, pred, tokens, imgs[None], patch, list(range(len(prob))))
             csel = rank_candidates_by_mask(m, prob, sel, opt.candidates)
             for k, arr in (('pose', pose), ('beta', beta), ('trans', tr), ('presence', prob)):
@@ -113,6 +124,7 @@ def run_sequence(model, ds, scored, seq_i, record, opt, device, smplx2smpl):
                 rec[f'cand_{k}'].append(arr[csel])
             rec['slots'].append(np.asarray(sel)); rec['masks'].append(m[sel])
             rec['cand_slots'].append(np.asarray(csel)); rec['cand_masks'].append(m[csel])
+            rec['all_presence'].append(prob); rec['all_trans'].append(tr)
             rec['frame_ids'].append(fid)
 
             K, E, R0, t0 = cameras_in_cam0(b)
@@ -126,7 +138,7 @@ def run_sequence(model, ds, scored, seq_i, record, opt, device, smplx2smpl):
                 gts['gt_v'].append(gv); gts['gt_n'].append(gn)
             del tokens, pred
     keys = ['pose', 'beta', 'trans', 'presence', 'slots', 'masks'] + \
-        [f'cand_{k}' for k in ('pose', 'beta', 'trans', 'presence', 'slots', 'masks')] + ['frame_ids']
+        [f'cand_{k}' for k in ('pose', 'beta', 'trans', 'presence', 'slots', 'masks')] + ['all_presence', 'all_trans', 'frame_ids']
     np.savez_compressed(opt.out / f'{record.name.replace("/", "_")}.npz', **{k: np.stack(rec[k]) for k in keys},
                         **{k: np.stack(v) for k, v in gts.items()}, K=K0, E=E0, views=np.array(views))
     return {'frames': len(frames), 'scored': len(gts['scored_idx']), 'views': views}
@@ -140,10 +152,19 @@ def main():
     ap.add_argument('--config', type=Path, default=MODEL_CONFIG, help='model config')
     ap.add_argument('--stride', type=int, default=10, help='evaluator: every stride-th temporal clip is scored')
     ap.add_argument('--candidates', type=int, default=4)
+    ap.add_argument('--select', choices=['top2', 'nms'], default='top2',
+                    help="top2: eval_h4d_nano's top-2 presence, no NMS (the reported protocol); "
+                         "nms: top-2 presence with 3D NMS at 0.25 m, as the MAMMA evaluators")
     ap.add_argument('--sequences', nargs='*', default=None, help='sequence names (record.name with / -> _)')
+    ap.add_argument('--views', nargs=V, default=None, metavar='CAM',
+                    help='fixed camera names, e.g. cam01 cam02 cam03 cam04 (first = camera 0); '
+                         'default: the evaluator\'s seeded random draw')
+    ap.add_argument('--views-json', type=Path, default=None,
+                    help='per-sequence camera names {sequence: [4 names]} (multismpl.inference.harmony4d_views)')
     ap.add_argument('--max-frames', type=int, default=0)
     ap.add_argument('--device', default='cuda')
     opt = ap.parse_args()
+    opt.views_per_seq = json.loads(opt.views_json.read_text()) if opt.views_json else None
     opt.out.mkdir(parents=True, exist_ok=True)
     device = torch.device(opt.device)
     torch.set_num_threads(4)
@@ -165,7 +186,9 @@ def main():
         t0 = time.time()
         info = run_sequence(model, ds, scored, seq_i, record, opt, device, smplx2smpl)
         if info is None:
-            print(f'SKIP {name}: fewer than {V} cameras present in every frame', flush=True)
+            print(f'SKIP {name}: ' + ('the fixed views are not all present in every frame'
+                                       if opt.views or opt.views_per_seq else
+                                       f'fewer than {V} cameras present in every frame'), flush=True)
             continue
         log[name] = info | {'seconds': time.time() - t0}
         print(f'{name}: {info["frames"]} frames ({info["scored"]} scored) {time.time() - t0:.0f}s', flush=True)

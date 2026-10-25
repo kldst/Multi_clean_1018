@@ -1,15 +1,16 @@
 """Step 1 for MAMMA videos (dance, singles, markerless scenes): network inference with the fair evaluator's contract
 (eval/mamma_eval_dance/eval_mamma_dance_comparison.py: video decode + process_one_image crop, causal T=3 window,
-top-k presence + 3D NMS slot selection incl. its fallback, camera-0 gauge) plus the person masks.
+top-k presence + 3D NMS slot selection incl. its fallback, camera-0 gauge) plus the person masks, and C mask-ranked
+candidates per frame for Joint Candidate Tracking (multismpl.tto.run).
 
   python -m multismpl.inference.mamma --out <dir>                                     # dance, 2 people
   python -m multismpl.inference.mamma --dataset singles --people 1 --select track --out <dir>     # singles
   python -m multismpl.inference.mamma --dataset markerless --people auto --candidates auto --out <dir>     # markerless
                                          (no GT; number of people read from the name, e.g. 260216_MultiMama_3_... -> 3)
-                                                                                      # markerless, for the v9 tracker
 Per sequence <out>/<seq>.npz:
   pose (F,P,72) beta (F,P,10) trans (F,P,3) presence (F,P) slots (F,P)   the P selected slots (camera-0 gauge)
-  all_presence (F,Q) all_trans (F,Q,3)                                   every slot
+  all_presence (F,Q) all_trans (F,Q,3) all_pose (F,Q,72) all_beta (F,Q,10)   every slot
+  all_support (F,Q) with --candidates: fraction of views whose mask > 300 px
   masks (F,P,V,259,259) uint8                                            masks of the selected slots
   cand_pose / cand_beta / cand_trans / cand_presence / cand_slots / cand_masks (F,C,...)   with --candidates C
   K (V,3,3) crop intrinsics (518 px)  E (V,3,4) world->cam  views (V,)
@@ -52,21 +53,26 @@ class CausalSingleTracker:
 def run_sequence(model, seq_dir, opt, device):
     views, people, C = opt.views, opt.people, opt.candidates
     cams = [dict(np.load(seq_dir / opt.meta_dir / f'{v}.npz')) for v in views]
+    video_dir = seq_dir / opt.video_dir
+    if not video_dir.is_dir() and (seq_dir / 'videos').is_dir():      # some downloads unpack to videos/
+        video_dir = seq_dir / 'videos'
     n = int(np.load(seq_dir / opt.meta_dir / 'global.npz')['frames_len'])
     if opt.max_frames:
         n = min(n, opt.max_frames)
     ctx = mp.get_context('spawn')
     queues = [ctx.Queue(maxsize=2) for _ in views]
-    workers = [ctx.Process(target=video_worker, args=(seq_dir / opt.video_dir / f'{v}.mp4', c, n, q), daemon=True)
+    workers = [ctx.Process(target=video_worker, args=(video_dir / f'{v}.mp4', c, n, q), daemon=True)
                for v, c, q in zip(views, cams, queues)]
     for w in workers:
         w.start()
     V = len(views)
     head = CachedTemporalHead(model, head_meta(V, device))
     tracker = CausalSingleTracker() if opt.select == 'track' else None
-    rec = {k: [] for k in ('pose', 'beta', 'trans', 'presence', 'slots', 'masks', 'all_presence', 'all_trans')}
+    rec = {k: [] for k in ('pose', 'beta', 'trans', 'presence', 'slots', 'masks', 'all_presence', 'all_trans',
+                           'all_pose', 'all_beta')}
     if C:
         rec.update({f'cand_{k}': [] for k in ('pose', 'beta', 'trans', 'presence', 'slots', 'masks')})
+        rec['all_support'] = []                       # fraction of views whose mask > 300 px, every slot
     Ks = [None] * V
     t0 = time.time()
     with torch.inference_mode():
@@ -93,11 +99,13 @@ def run_sequence(model, seq_dir, opt, device):
                 for k, arr in (('pose', pose), ('beta', beta), ('trans', tr), ('presence', prob), ('masks', m)):
                     rec[f'cand_{k}'].append(arr[csel])
                 rec['cand_slots'].append(np.asarray(csel))
+                rec['all_support'].append(((m >= 128).sum((-1, -2)) > 300).mean(-1))
             else:
                 rec['masks'].append(m[:people])
             rec['pose'].append(pose[sel]); rec['beta'].append(beta[sel]); rec['trans'].append(tr[sel])
             rec['presence'].append(prob[sel]); rec['slots'].append(np.asarray(sel))
             rec['all_presence'].append(prob); rec['all_trans'].append(tr)
+            rec['all_pose'].append(pose); rec['all_beta'].append(beta)
             del tokens, pred
     for w in workers:
         w.join(timeout=30)
@@ -141,17 +149,19 @@ def main():
     ap.add_argument('--people', default='2', help="slots kept per frame (top-k presence + 3D NMS); 'auto' = from the sequence name")
     ap.add_argument('--select', choices=['presence', 'track'], default='presence',
                     help='track: causal slot tracking for one person (singles), see CausalSingleTracker')
-    ap.add_argument('--candidates', default='0', help="also store C mask-ranked candidates (for multismpl.tto.run --tracker candidates); 'auto' = people + 4, at least 6")
+    ap.add_argument('--candidates', default='4',
+                    help="C mask-ranked candidates stored for Joint Candidate Tracking (multismpl.tto.run); 'auto' = people + 4, "
+                         "at least 6; 0 = none (only the slot tracker can then be used)")
     ap.add_argument('--meta-dir', default=None, help='camera / global npz folder (default: per dataset)')
-    ap.add_argument('--video-dir', default=None, help='video folder (default: per dataset)')
+    ap.add_argument('--video-dir', default=None, help='video folder (default: per dataset, else videos/)')
     ap.add_argument('--max-frames', type=int, default=0)
     ap.add_argument('--device', default='cuda')
     opt = ap.parse_args()
     key, meta_dir, video_dir = DATASETS[opt.dataset]
     opt.meta_dir = opt.meta_dir or meta_dir
     opt.video_dir = opt.video_dir or video_dir
-    if opt.select == 'track' and (opt.people != '1' or opt.candidates != '0'):
-        raise SystemExit('--select track is for one person without candidates')
+    if opt.select == 'track' and opt.people != '1':
+        raise SystemExit('--select track is for one person')
     opt.out.mkdir(parents=True, exist_ok=True)
     device = torch.device(opt.device)
     opt.checkpoint = opt.checkpoint or PATHS.checkpoint

@@ -73,10 +73,10 @@ def person_masks(model, pred, tokens, images, patch, slots):
 
 
 def rank_candidates_by_mask(masks_all, prob, selected, C):
-    """C candidates for the v9 tracker: the evaluator's selected slots first, then the other slots ordered by
-    (mask visible in >= half the views, presence), skipping duplicates (mean-over-views mask IoU > 0.5 with a kept
-    one). A real but under-confident person (presence 0.05, full mask) then outranks phantom slots (presence 0.1,
-    empty mask). masks_all (Q,V,G,G) uint8. Returns C slot indices (padded by repeating the last)."""
+    """C candidates for Joint Candidate Tracking (multismpl.tto.tracking): the evaluator's selected slots first,
+    then the other slots ordered by (mask visible in >= half the views, presence), skipping duplicates
+    (mean-over-views mask IoU > 0.5 with a kept one). A real but under-confident person (presence 0.05, full mask)
+    then outranks phantom slots (presence 0.1, empty mask). masks_all (Q,V,G,G) uint8. Returns C slot indices (padded by repeating the last)."""
     fg = masks_all >= 128
     sup = (fg.sum((-1, -2)) > 300).mean(-1)
     flat = fg.reshape(len(fg), fg.shape[1], -1)

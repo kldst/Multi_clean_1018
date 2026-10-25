@@ -3,11 +3,11 @@
 Two trackers:
   slots       the inference already picked P slots per frame (in arbitrary order). A Viterbi over the P! orderings
               (P = 2: keep / swap) links them into tracks. Used for MAMMA dance, CHI3D and singles (P = 1: nothing to do).
-  candidates  "v9": the inference stored C mask-ranked candidates per frame. Each candidate is placed in 3D by
-              triangulating its mask centroids; all P tracks are then assigned jointly per frame (Hungarian) with
-              motion + mask-IoU + presence costs; a track may stay unassigned (person missing). A start position is
-              replaced by the triangulated one when the network's pelvis is > 0.3 m off. Used for Harmony4D and the
-              markerless MAMMA scenes (works for any P; needs P given).
+  candidates  Joint Candidate Tracking (JCT): the inference stored C mask-ranked candidates per frame. Each
+              candidate is placed in 3D by triangulating its mask centroids; all P tracks are then assigned jointly
+              per frame (Hungarian) with motion + mask-IoU + presence costs; a track may stay unassigned (person
+              missing). A start position is replaced by the triangulated one when the network's pelvis is > 0.3 m
+              off. Used for Harmony4D and the markerless MAMMA scenes (works for any P; needs P given).
 
 Both return a `Tracks` record with world-frame arrays the fit starts from.
 """
@@ -32,6 +32,7 @@ class Tracks:
     ambiguous: np.ndarray       # (F,) frames with uncertain identity: no smoothness across them, not used for beta
     missing: np.ndarray         # (F,P) person not found (no mask evidence, filled from neighbouring frames)
     stats: dict = field(default_factory=dict)
+    ambiguous_pp: np.ndarray = None   # (F,P) per person: missing, or < 15 cm from another person (None: = ambiguous)
 
 
 # ----------------------------------------------------------------------------------------------- slot tracker
@@ -93,33 +94,64 @@ def tracks_from_slots(d, n):
 
 # ------------------------------------------------------------------------------------------ candidate tracker
 def track_candidates_joint(pos, presence, P, support, cmasks, w_motion=0.10, miss_cost=8.0, dup_m=0.25,
-                           w_iou=4.0, jump_m=0.35, gap_speed=0.05, max_gap=60):
+                           w_iou=4.0, jump_m=0.35, gap_speed=0.05, max_gap=60, consistent=None,
+                           topk=None, topk_bonus=0., body=None, w_pose=0., keep_topk_pairs=False,
+                           min_presence_boost=0., dup_mask_iou=0., reacquire=False, reacquire_cap=4.0):
     """Joint online track-by-detection over the stored candidates.
 
     pos (F,C,3) world position of every candidate, presence (F,C), support (F,C) = fraction of views where its mask
     has > 300 px, cmasks (F,C,V,G,G). A candidate with support < 0.5 is a phantom (unusable); a usable one gets
     presence' = max(presence, support) (a visible but under-confident person still counts).
-    Per frame, duplicates of one person (< dup_m apart, presence order) are removed, then ALL P tracks are assigned
+    Per frame, duplicates of one person (< dup_m apart, presence order; with `consistent` (F,C) bool, consistent
+    candidates first) are removed, then ALL P tracks are assigned
     at once (Hungarian): cost = distance to the track's last position / w_motion + w_iou * (1 - mask IoU with the
     track's last mask) - log presence'; staying unassigned costs miss_cost. A link longer than
     jump_m + gap_speed * (frames since last seen - 1) is forbidden (free again after max_gap missing frames).
     Why jointly: when the confident slot slides from person A onto neighbour B, a one-track-at-a-time tracker for A
     follows it onto B; jointly the presence terms cancel and the smaller total motion wins.
+    topk (F,C) bool = the candidate is one of the network's top-k slots: its link cost is lowered by topk_bonus (in
+    motion units, 1 = 10 cm) and it is preferred among duplicates, so the tracker keeps the network's choice unless
+    that choice clearly jumps (a bystander metres away). body (F,C,63) body pose: w_pose * mean |pose change|
+    (rad) is added to a link, so a duplicate slot with another pose at the same place is not taken over the
+    track's own continuation (two people hugging).
+    min_presence_boost: presence' = max(presence, support) only when presence >= this (a near-zero-presence slot whose
+    masks are fragments of other people is not made fully confident by them). dup_mask_iou > 0: two candidates whose
+    mean-over-views mask IoU exceeds it are one person (even two top-k slots; real neighbours, hugging included,
+    stay < 0.11 at the 99th percentile), so two tracks cannot sit on one person. reacquire: a track that missed the
+    previous frame may take a clear candidate (support >= 0.75, presence >= 0.3) at any distance, its motion cost
+    capped at reacquire_cap (< miss_cost), so a track that lost its person does not stay lost until max_gap.
     Start: the frame whose P-th best (usable, mutually > dup_m apart, present within 0.3 m in all frames of +-5)
     candidate is most confident; then track forward and backward from it.
     Returns choice (F,P): candidate index or -1 (missing)."""
     n, C = presence.shape
+    order = presence if consistent is None else presence + 2.0 * consistent      # duplicate suppression order
+    if topk is not None and topk_bonus > 0:
+        order = order + 1.0 * topk
+
+    def keep_pair(f, c, j):
+        """Two of the network's own top-k slots are never duplicates of each other (its 3D NMS already separated
+        them): two people hugging can have mask centroids < dup_m apart."""
+        return keep_topk_pairs and topk is not None and bool(topk[f, c] and topk[f, j])
     usable = support >= 0.5
-    pres = np.where(usable, np.maximum(presence, support), presence)
+    pres = np.where(usable & (presence >= min_presence_boost), np.maximum(presence, support), presence)
+    clear = (support >= 0.75) & (presence >= 0.3)
     unary = -np.log(np.clip(pres, 1e-4, 1))
     fg = (cmasks >= 128).reshape(n, C, cmasks.shape[2], -1)
+
+    def same_mask(f, c, j):
+        if dup_mask_iou <= 0:
+            return False
+        inter = (fg[f, c] & fg[f, j]).sum(-1)
+        union = (fg[f, c] | fg[f, j]).sum(-1)
+        return float(np.where(union > 0, inter / np.maximum(union, 1), 0).mean()) > dup_mask_iou
     choice = np.full((n, P), -1, np.int64)
 
     best, f0 = -1., None
     for f in range(n):
         kept = []
-        for c in np.argsort(-presence[f]):
-            if usable[f, c] and all(np.linalg.norm(pos[f, c] - pos[f, j]) > dup_m for j in kept) and \
+        for c in np.argsort(-order[f]):
+            if usable[f, c] and all((np.linalg.norm(pos[f, c] - pos[f, j]) > dup_m or keep_pair(f, c, j))
+                                    and not same_mask(f, c, j) for j in kept) and \
                     all((usable[h] & (np.linalg.norm(pos[h] - pos[f, c], axis=-1) < 0.3)).any()
                         for h in range(max(0, f - 5), min(n, f + 6))):
                 kept.append(c)
@@ -134,8 +166,9 @@ def track_candidates_joint(pos, presence, P, support, cmasks, w_motion=0.10, mis
         last_c = choice[f0].copy()
         for f in frames:
             cand = []
-            for c in np.argsort(-presence[f]):                                  # duplicate suppression
-                if usable[f, c] and all(np.linalg.norm(pos[f, c] - pos[f, j]) >= dup_m for j in cand):
+            for c in np.argsort(-order[f]):                                  # duplicate suppression
+                if usable[f, c] and all((np.linalg.norm(pos[f, c] - pos[f, j]) >= dup_m or keep_pair(f, c, j))
+                                        and not same_mask(f, c, j) for j in cand):
                     cand.append(c)
             cand = np.asarray(cand, np.int64)
             if len(cand) == 0:
@@ -146,11 +179,19 @@ def track_candidates_joint(pos, presence, P, support, cmasks, w_motion=0.10, mis
                 dist = np.linalg.norm(pos[f, cand] - pos[last_f[k], last_c[k]], axis=-1)
                 ok = (dist <= jump_m + gap_speed * (g - 1)) | (g > max_gap)
                 c_k = np.where(g > max_gap, 0., dist / w_motion) + unary[f, cand]
+                if reacquire and g >= 2:
+                    re = clear[f, cand] & ~ok
+                    ok = ok | re
+                    c_k = np.where(re, reacquire_cap + unary[f, cand], c_k)
                 a = fg[last_f[k], last_c[k]][None]
                 b = fg[f, cand]
                 inter = (a & b).sum(-1)
                 union = (a | b).sum(-1)
                 c_k = c_k + w_iou * (1 - np.where(union > 0, inter / np.maximum(union, 1), 0).mean(-1))
+                if topk is not None and topk_bonus > 0:
+                    c_k = c_k - topk_bonus * topk[f, cand]
+                if body is not None and w_pose > 0:
+                    c_k = c_k + w_pose * np.abs(body[f, cand] - body[last_f[k], last_c[k]]).mean(-1)
                 cost[k, ok] = c_k[ok]
             big = np.concatenate([np.where(np.isfinite(cost), cost, 1e6),
                                   np.where(np.eye(P, dtype=bool), miss_cost, 1e6)], 1)   # + one "missing" column per track
@@ -163,21 +204,32 @@ def track_candidates_joint(pos, presence, P, support, cmasks, w_motion=0.10, mis
     return choice
 
 
-def tracks_from_candidates(d, n, P, drop_outlier_views=False, up_axis='z', dev='cpu'):
+def tracks_from_candidates(d, n, P, drop_outlier_views=False, up_axis='z', dev='cpu', up_shift=0.,
+                           prefer_consistent=False, consistent_m=1.0, topk_bonus=0., w_pose=0., keep_topk_pairs=False,
+                           min_presence_boost=0., dup_mask_iou=0., reacquire=False):
     """d = inference npz with cand_* arrays (camera-0 gauge). P = number of people.
-    up_axis: the triangulated silhouette centre is shifted 0.15 m down to ~pelvis height along world z ('z', the
-    MAMMA markerless worlds are z-up) or along the up-axis estimated from the bodies ('body', any world frame)."""
+    up_axis: the triangulated silhouette centre is shifted up_shift m down (default 0) along world z ('z', the
+    MAMMA markerless worlds are z-up) or along the up-axis estimated from the bodies ('body', any world frame).
+    prefer_consistent: when duplicates of one person are suppressed, keep first a candidate whose own network pelvis
+    is within consistent_m of where its masks triangulate. A mixed candidate (masks mostly on person A, body on a
+    bystander B) then loses to A's own candidate even with a higher presence; a lone inconsistent candidate (an
+    occluded person whose network depth is off) is still kept."""
     cmasks = d['cand_masks'][:n]
     cpose_w, cpos_w = gauge_to_world(d['cand_pose'][:n], d['cand_trans'][:n], d['E'][0])
     support = ((cmasks >= 128).sum((-1, -2)) > 300).mean(-1)
     # image-supported positions (an under-confident slot can have a good mask but a depth metres off)
     Xt, tri_ok = triangulate_masks(cmasks, d['K'], d['E'], drop_outliers=drop_outlier_views)
     if up_axis == 'body':
-        Xt -= 0.15 * tri_ok[..., None] * body_up(cpose_w, d['cand_beta'][:n], cpos_w, d['cand_presence'][:n], dev)
+        Xt -= up_shift * tri_ok[..., None] * body_up(cpose_w, d['cand_beta'][:n], cpos_w, d['cand_presence'][:n], dev)
     else:
-        Xt[..., 2] -= 0.15 * tri_ok
+        Xt[..., 2] -= up_shift * tri_ok
     pos = np.where(tri_ok[..., None], Xt, cpos_w)
-    choice = track_candidates_joint(pos, d['cand_presence'][:n], P, support, cmasks)
+    consistent = ~tri_ok | (np.linalg.norm(cpos_w - Xt, axis=-1) <= consistent_m) if prefer_consistent else None
+    topk = (d['cand_slots'][:n, :, None] == d['slots'][:n, None, :]).any(-1)     # candidate = a top-k slot
+    choice = track_candidates_joint(pos, d['cand_presence'][:n], P, support, cmasks, consistent=consistent,
+                                    topk=topk, topk_bonus=topk_bonus, body=d['cand_pose'][:n, :, 3:66], w_pose=w_pose,
+                                    keep_topk_pairs=keep_topk_pairs, min_presence_boost=min_presence_boost,
+                                    dup_mask_iou=dup_mask_iou, reacquire=reacquire)
 
     found = choice >= 0
     ci = np.where(found, choice, 0)
@@ -205,8 +257,12 @@ def tracks_from_candidates(d, n, P, drop_outlier_views=False, up_axis='z', dev='
                       for f in range(n)]) if P > 1 else np.full(n, 9.)
     missing = ~found
     amb = (close < 0.15) | missing.any(1)
+    dpp = np.linalg.norm(pelvis_w[:, :, None] - pelvis_w[:, None], axis=-1) + np.eye(P) * 9.
+    amb_pp = missing | (dpp.min(-1) < 0.15)
     stats = {'tracked_by_candidates': True, 'missing_person_frames': int(missing.sum()), 'triangulated_init': int(far.sum())}
-    return _apply_perm(pose_w, beta, pelvis_w, masks, np.tile(np.arange(P), (n, 1)), amb, missing, stats)
+    tr = _apply_perm(pose_w, beta, pelvis_w, masks, np.tile(np.arange(P), (n, 1)), amb, missing, stats)
+    tr.ambiguous_pp = amb_pp
+    return tr
 
 
 def _apply_perm(pose_w, beta, pelvis_w, masks, perm, amb, missing, stats):

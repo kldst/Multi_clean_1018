@@ -64,8 +64,11 @@ class SequenceFit:
         self.v_inside = torch.randperm(N_VERTS, generator=torch.Generator().manual_seed(1))[:3000].to(dev)       # inside term
 
         # --- parameters, initialised from the network (world frame)
-        keep = ~tracks.ambiguous
-        beta0 = np.stack([np.median(tracks.beta[keep if keep.sum() > 5 else slice(None), p], axis=0) for p in range(P)])
+        amb_pp = tracks.ambiguous_pp if getattr(opt, 'per_person_smooth', False) and tracks.ambiguous_pp is not None \
+            else np.repeat(tracks.ambiguous[:, None], P, 1)
+        keep = ~amb_pp
+        beta0 = np.stack([np.median(tracks.beta[keep[:, p] if keep[:, p].sum() > 5 else slice(None), p], axis=0)
+                          for p in range(P)])
         self.pose0 = torch.tensor(tracks.pose, device=dev, dtype=torch.float32)                         # (n,P,72)
         self.orient = self.pose0[..., :3].clone().requires_grad_(True)
         self.body = self.pose0[..., 3:66].clone().requires_grad_(True)
@@ -73,7 +76,7 @@ class SequenceFit:
         self.pelvis = torch.tensor(tracks.pelvis, device=dev, dtype=torch.float32).requires_grad_(True)
         self.beta_mean = torch.tensor(beta0, device=dev, dtype=torch.float32)
         self.beta = self.beta_mean.clone().requires_grad_(True)                                         # (P,10)
-        self.smooth_ok = torch.tensor(~tracks.ambiguous, device=dev, dtype=torch.float32)
+        self.smooth_ok = torch.tensor(~amb_pp, device=dev, dtype=torch.float32)                         # (n,P)
         self.chunks = [(s, min(n, s + opt.chunk)) for s in range(0, n, opt.chunk)]
         self.w_in = torch.ones(n, P, V, device=dev) * self.valid
         self.w_cov = self.w_in.clone()
@@ -164,7 +167,7 @@ class SequenceFit:
         jj = j[..., :24, :]
         if jj.shape[0] >= 3:
             acc = (jj[2:] - 2 * jj[1:-1] + jj[:-2]).norm(dim=-1).square().mean(-1)                     # (b'-2,P)
-            ok = (self.smooth_ok[lo + 2:e] * self.smooth_ok[lo + 1:e - 1] * self.smooth_ok[lo:e - 2])[:, None]
+            ok = self.smooth_ok[lo + 2:e] * self.smooth_ok[lo + 1:e - 1] * self.smooth_ok[lo:e - 2]           # (b'-2,P)
             l_smooth = (acc * ok).sum() * 1e4 / max(1, P * (n - 2))
         else:
             l_smooth = torch.zeros((), device=self.dev)

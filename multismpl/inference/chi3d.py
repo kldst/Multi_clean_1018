@@ -2,7 +2,7 @@
 3rd frame scored, T = 3 consecutive frames ending at the scored one, process_one_image with identity extrinsics and
 intrinsics_wo_distortion, top2_nms3d, camera-0 coordinates) plus the person masks on the scored frame.
 
-  python -m multismpl.inference.chi3d --out <dir> [--candidates 4]
+  python -m multismpl.inference.chi3d --out <dir> [--candidates C (default 4)]
 
 Per sequence <out>/<safe_name>.npz (camera 0 = world frame):
   pose (F,2,72) beta (F,2,10) trans (F,2,3) presence slots masks (F,2,4,259,259)   F = scored frames
@@ -108,7 +108,8 @@ def main():
     ap.add_argument('--checkpoint', type=Path, default=None, help='default: configs/paths.yaml checkpoint')
     ap.add_argument('--config', type=Path, default=MODEL_CONFIG, help='model config')
     ap.add_argument('--sequences', nargs='*', default=None)
-    ap.add_argument('--candidates', type=int, default=0, help='also store C mask-ranked candidates (for run_tto.py --tracker candidates)')
+    ap.add_argument('--candidates', type=int, default=4,
+                    help='C mask-ranked candidates stored for Joint Candidate Tracking (multismpl.tto.run); 0 = none')
     ap.add_argument('--max-sequences', type=int, default=0)
     ap.add_argument('--max-samples-per-sequence', type=int, default=0)
     ap.add_argument('--device', default='cuda')
