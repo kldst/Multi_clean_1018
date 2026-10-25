@@ -136,6 +136,13 @@ markerless 多人場景（telephone_chain 4–6 人）看到：軌跡被沒信�
   telephone_chain 4 人缺人 264 → 94、5 人 300 → 39。舊行為：`--min-presence-boost 0 --no-reacquire --no-per-person-smooth`。
 - 影片：`outputs/dance_video/render_mesh_video.py --hide-dropped` 不畫追蹤找不到的人（只影響影片，不影響評分）。
 
+## MAMMA 官方在 dance / singles（2026-10-25）
+
+本機跑官方預設（含極線約束、全自動、IOI_01/05/09/13）：dance 18 條 SMPL-22 33.87 / 26.43、H36M-14 38.70 / 26.70
+（`/mnt/train-data-2-hdd/yian/data/mamma_dance_mamma_run/eval_mamma_dance18_merged.json`）；singles 22 條 15.75 / 11.64、
+17.28 / 11.72。RESULTS / 網頁的 dance MAMMA 列改用使用者在另一台 server 跑的 34.08 / 26.61（使用者確認條件相同；
+H36M-14 38.92 / 26.91）。之前沒開極線約束的舊數字 37.99 / 30.72。
+
 ## 還沒搬（使用者決定先不做）
 
 1. 資料前處理：`compose_script/`、`smpl_transfer/` 中真正用到的轉換（產生 compose 格式的 MAMMA / Harmony4D 訓練資料）。

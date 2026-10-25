@@ -7,7 +7,7 @@ and cameras; protocols differ between benchmarks, so do not compare across table
 - **H36M-14**: J_regressor_h36m → 14 joints. Rooted on the regressed H36M pelvis (Dance, singles, Harmony4D) or on the
   SMPL-X kinematic joint 0 (CHI3D, as MV4DHMR `test.py`).
 - **PA-**: after a similarity (Umeyama) alignment. **Transl**: pelvis position error.
-- **Ours**: checkpoint `nano4` (trained on MAMMA synthetic, Harmony4D, BEDLAM; never on CHI3D), 4 views, T = 3.
+- **Ours**: checkpoint `nano4` (trained on MAMMA synthetic and Harmony4D only; never on CHI3D), 4 views, T = 3.
   **+ TTO** uses the calibrated cameras, as do all multi-view methods below.
 - **Pipeline**: top-k slots per frame (the network row) -> Joint Candidate Tracking (JCT) -> TTO, the same on every
   dataset (`scripts/run_benchmark.sh`, `multismpl.tto.run` defaults). `LEGACY=1 scripts/run_benchmark.sh` runs the
@@ -23,9 +23,9 @@ Hungarian matching on the world H36M pelvis, no gate, every GT person scored.
 
 | Method | SMPL-22 | SMPL-22 PA | H36M-14 | H36M-14 PA |
 |---|---|---|---|---|
-| Ours, network | 54.84 | 39.32 | 60.82 | 41.44 |
-| **Ours + TTO** | 42.08 | 31.02 | 48.20 | 33.07 |
-| MAMMA official pipeline (YOLO+SAM2 → MammaNet → multi-view SMPL-X fit), same 4 views | **37.99** | **30.72** | **42.77** | **31.49** |
+| Ours, network | 54.94 | 39.28 | 61.02 | 41.35 |
+| **Ours + TTO** | 41.72 | 30.60 | 47.91 | 32.67 |
+| MAMMA official pipeline (YOLO+SAM2 with epipolar matching → MammaNet → multi-view SMPL-X fit, official preset), same 4 views | **34.08** | **26.61** | **38.92** | **26.91** |
 | HeatFormer (GT boxes / person count / association) | 67.96 | 42.15 | 73.13 | 41.58 |
 | MV4DHMR, 4 views | 75.00 | 47.01 | 81.35 | 51.49 |
 | MV4DHMR, 8 views | 51.87 | 34.38 | 61.08 | 37.86 |
@@ -62,9 +62,10 @@ Gendered GT, no gate. The network's slot is chosen by causal tracking (`--select
 | Method | SMPL-22 | SMPL-22 PA | H36M-14 | H36M-14 PA |
 |---|---|---|---|---|
 | Ours, network | 60.91 | 42.80 | 66.51 | 44.03 |
-| **Ours + TTO** | **48.49** | 36.29 | **53.66** | 37.81 |
-| HeatFormer (GT boxes / person count / association) | 53.78 | **34.84** | 56.34 | **34.96** |
+| **Ours + TTO** | 48.49 | 36.29 | 53.66 | 37.81 |
+| HeatFormer (GT boxes / person count / association) | 53.78 | 34.84 | 56.34 | 34.96 |
 | MV4DHMR, 4 views | 122.34 | 59.15 | 139.35 | 65.28 |
+| MAMMA official pipeline (automatic, epipolar matching, official preset), same 4 views | **15.75** | **11.64** | **17.28** | **11.72** |
 
 ## Harmony4D test — 1 429 scored frames, two people in close contact
 

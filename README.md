@@ -34,7 +34,7 @@ TTO rows alike.
 
 | Benchmark | Metric | Network | + TTO |
 |---|---|---|---|
-| MAMMA Dance (18 seq., 2 people, 4 views) | SMPL-22 | 54.84 / 39.32 | **42.08 / 31.02** |
+| MAMMA Dance (18 seq., 2 people, 4 views) | SMPL-22 | 54.94 / 39.28 | **41.72 / 30.60** |
 | CHI3D s04 (MV4DHMR `test.py` protocol) | H36M-14 | 57.82 / 34.13 | **44.44 / 29.40** |
 | MAMMA singles (22 seq.) | SMPL-22 | 60.91 / 42.80 | **48.49 / 36.29** |
 | Harmony4D test (close interaction) | SMPL-22 | 56.72 / 39.27 | **44.28 / 32.41** |
@@ -122,6 +122,6 @@ pytest            # CPU only, synthetic data; the end-to-end TTO test is skipped
 
 - Model code under `multismpl/model/` is derived from VGGT (Meta Platforms); see `LICENSE_VGGT.txt`. The released
   weights were initialised from the original VGGT-1B checkpoint, whose licence is **non-commercial**.
-- SMPL / SMPL-X models and all datasets (MAMMA, CHI3D, Harmony4D, BEDLAM) are under their own licences and are not
+- SMPL / SMPL-X models and all datasets (MAMMA, CHI3D, Harmony4D) are under their own licences and are not
   included.
 - License of this repository: TBD.
