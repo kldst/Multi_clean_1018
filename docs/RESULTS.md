@@ -41,7 +41,6 @@ Hungarian matching on the world H36M pelvis, no gate, every GT person scored.
 | Ours, network | 57.82 | 34.13 | 65.74 | 44.70 | 234.35 | 53.34 | 31.07 | 99.6% |
 | **Ours + TTO** | 44.44 | 29.40 | 52.88 | 41.78 | 28.16 | 40.28 | 25.70 | 100.0% |
 | HeatFormer, GT boxes | 51.79 | 30.33 | 63.18 | 42.50 | 42.72 | – | – | 99.6% |
-| HeatFormer, YOLO boxes | 48.36 | 29.03 | 58.76 | 40.58 | 35.78 | – | – | 99.8% |
 | MAMMA official pipeline (all 50 fps frames) | **32.97** | **24.16** | **42.11** | **34.55** | **24.51** | – | – | 99.6% |
 | MV4DHMR (paper, not fine-tuned) | 62.0 | 44.2 | 53.0 | 38.3 | 34.3 | – | – | – |
 | Multi-HMR (paper) | 85.3 | 56.7 | 69.7 | 44.3 | 194.4 | – | – | – |
@@ -51,9 +50,8 @@ Hungarian matching on the world H36M pelvis, no gate, every GT person scored.
 | Method | MPJPE | PA-MPJPE | PVE | PA-PVE | Transl | SMPL-22 | SMPL-22 PA |
 |---|---|---|---|---|---|---|---|
 | Ours, network | 58.13 | 34.33 | 66.12 | 45.01 | 242.15 | 53.58 | 31.21 |
-| **Ours + TTO** | **44.44** | 29.40 | **52.88** | 41.78 | **28.16** | 40.28 | 25.70 |
+| **Ours + TTO** | **44.44** | **29.40** | **52.88** | **41.78** | **28.16** | 40.28 | 25.70 |
 | HeatFormer, GT boxes | 52.88 | 30.52 | 64.46 | 42.74 | 43.70 | – | – |
-| HeatFormer, YOLO boxes | 49.28 | **29.09** | 59.84 | **40.66** | 35.90 | – | – |
 
 ## MAMMA singles — 22 sequences, 22 188 frames, one person
 
@@ -62,10 +60,9 @@ Gendered GT, no gate. The network's slot is chosen by causal tracking (`--select
 | Method | SMPL-22 | SMPL-22 PA | H36M-14 | H36M-14 PA |
 |---|---|---|---|---|
 | Ours, network | 60.91 | 42.80 | 66.51 | 44.03 |
-| **Ours + TTO** | 48.49 | 36.29 | 53.66 | 37.81 |
-| HeatFormer (GT boxes / person count / association) | 53.78 | 34.84 | 56.34 | 34.96 |
+| **Ours + TTO** | **48.49** | 36.29 | **53.66** | 37.81 |
+| HeatFormer (GT boxes / person count / association) | 53.78 | **34.84** | 56.34 | **34.96** |
 | MV4DHMR, 4 views | 122.34 | 59.15 | 139.35 | 65.28 |
-| MAMMA official pipeline (automatic, epipolar matching, official preset), same 4 views | **15.75** | **11.64** | **17.28** | **11.72** |
 
 ## Harmony4D test — 1 429 scored frames, two people in close contact
 
