@@ -32,26 +32,22 @@ Hungarian matching on the world H36M pelvis, no gate, every GT person scored.
 
 ## CHI3D s04 — 127 sequences, 13 034 person-frames, MV4DHMR `test.py` protocol
 
-4 cameras, every 3rd frame, camera-0 coordinates, greedy PVE matching.
+4 cameras, every 3rd frame, camera-0 coordinates, greedy PVE matching, 500 mm gate (test.py default). Other methods:
+Table 2 of Li et al., *Training-free Multi-view 4D Human Motion Reconstruction* (WACV 2026), methods not fine-tuned on
+CHI3D unless marked (‡: adapted to multi-view and fine-tuned on CHI3D by Li et al.).
 
-**With the 500 mm gate (test.py default)**
-
-| Method | MPJPE | PA-MPJPE | PVE | PA-PVE | Transl | SMPL-22 | SMPL-22 PA | recall |
-|---|---|---|---|---|---|---|---|---|
-| Ours, network | 57.82 | 34.13 | 65.74 | 44.70 | 234.35 | 53.34 | 31.07 | 99.6% |
-| **Ours + TTO** | 44.44 | 29.40 | 52.88 | 41.78 | 28.16 | 40.28 | 25.70 | 100.0% |
-| HeatFormer, GT boxes | 51.79 | 30.33 | 63.18 | 42.50 | 42.72 | – | – | 99.6% |
-| MAMMA official pipeline (all 50 fps frames) | **32.97** | **24.16** | **42.11** | **34.55** | **24.51** | – | – | 99.6% |
-| MV4DHMR (paper, not fine-tuned) | 62.0 | 44.2 | 53.0 | 38.3 | 34.3 | – | – | – |
-| Multi-HMR (paper) | 85.3 | 56.7 | 69.7 | 44.3 | 194.4 | – | – | – |
-
-**Without the gate (every GT person scored)**
-
-| Method | MPJPE | PA-MPJPE | PVE | PA-PVE | Transl | SMPL-22 | SMPL-22 PA |
-|---|---|---|---|---|---|---|---|
-| Ours, network | 58.13 | 34.33 | 66.12 | 45.01 | 242.15 | 53.58 | 31.21 |
-| **Ours + TTO** | **44.44** | **29.40** | **52.88** | **41.78** | **28.16** | 40.28 | 25.70 |
-| HeatFormer, GT boxes | 52.88 | 30.52 | 64.46 | 42.74 | 43.70 | – | – |
+| Method | Fine-tune | Multi-view | MPJPE | PA-MPJPE | Transl |
+|---|---|---|---|---|---|
+| CLIFF | ✓ | No | 76.4 | 45.9 | 375.9 |
+| TRACE | ✓ | No | 75.9 | 49.7 | 236.3 |
+| Dual-Human | ✓ | No | 71.9 | 47.8 | 228.5 |
+| SA-HMR | ✗ | No | N/A | N/A | N/A |
+| Multi-HMR | ✗ | No | 85.3 | 56.7 | 194.4 |
+| MV4DHMR (Li et al.) | ✗ | Yes | 62.0 | 44.2 | 34.3 |
+| HeatFormer ‡ | ✓ | Yes | 57.3 | 41.5 | 49.4 |
+| MV4DHMR (Li et al.), fine-tuned | ✓ | Yes | **44.0** | 32.6 | **20.6** |
+| Ours, network | ✗ | Yes | 57.82 | 34.13 | 234.35 |
+| **Ours + TTO** | ✗ | Yes | 44.44 | **29.40** | 28.16 |
 
 ## MAMMA singles — 22 sequences, 22 188 frames, one person
 
